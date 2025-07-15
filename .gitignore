@@ -139,6 +139,7 @@ node_modules/
 
 # Log files
 *.log
+humidity_server.log*
 
 # Arduino
 *.ino.*
