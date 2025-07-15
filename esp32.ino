@@ -14,6 +14,11 @@ const char* endpoint = SERVER_ENDPOINT;
 unsigned long lastSensorRead = 0;
 unsigned long lastServerSend = 0;
 
+// Averaging variables
+float humiditySum = 0;
+int readingCount = 0;
+int lastRawValue = 0;  // Store last raw value for server transmission
+
 void setup() {
   Serial.begin(115200);
   delay(1000);
@@ -50,7 +55,12 @@ void loop() {
     int rawValue = analogRead(HUMIDITY_PIN);
     float humidityPercent = readHumidity(rawValue);
     
-    // Print readings
+    // Accumulate readings for averaging
+    humiditySum += humidityPercent;
+    readingCount++;
+    lastRawValue = rawValue;  // Store last raw value for server transmission
+    
+    // Print current reading
     Serial.print("Raw ADC Value: ");
     Serial.print(rawValue);
     Serial.print(" | Humidity: ");
@@ -59,9 +69,20 @@ void loop() {
     
     lastSensorRead = currentTime;
     
-    // Send to server every SERVER_INTERVAL
+    // Send average to server every SERVER_INTERVAL
     if (currentTime - lastServerSend >= SERVER_INTERVAL) {
-      sendHumidityData(rawValue, humidityPercent);
+      float avgHumidity = humiditySum / readingCount;
+      Serial.print("Sending average humidity: ");
+      Serial.print(avgHumidity);
+      Serial.print("% (from ");
+      Serial.print(readingCount);
+      Serial.println(" readings)");
+      
+      sendHumidityData(lastRawValue, avgHumidity);
+      
+      // Reset averaging
+      humiditySum = 0;
+      readingCount = 0;
       lastServerSend = currentTime;
     }
   }
