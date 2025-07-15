@@ -1,0 +1,28 @@
+// Configuration file for ESP32 Garden Humidity Monitor
+// Copy this file to config.h and update with your actual values
+
+#ifndef CONFIG_H
+#define CONFIG_H
+
+// WiFi Configuration
+#define WIFI_SSID "YOUR_WIFI_SSID"
+#define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
+
+// Server Configuration  
+#define SERVER_IP "YOUR_SERVER_IP"
+#define SERVER_PORT 8080
+#define SERVER_ENDPOINT "/humidity"
+
+// Hardware Configuration
+#define HUMIDITY_PIN 32
+#define ADC_RESOLUTION 4095
+
+// Sensor Calibration
+#define DRY_VALUE 3250
+#define WET_VALUE 1000
+
+// Timing Configuration
+#define SENSOR_INTERVAL 2000   // Read sensor every 2 seconds
+#define SERVER_INTERVAL 10000  // Send to server every 10 seconds
+
+#endif // CONFIG_H

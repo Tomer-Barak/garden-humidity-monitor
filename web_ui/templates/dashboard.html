@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Garden</title>
+    
+    <!-- PWA Meta Tags -->
+    <meta name="application-name" content="Garden">
+    <meta name="apple-mobile-web-app-title" content="Garden">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#2ecc71">
+    
+    <!-- Icons for homescreen -->
+    <link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('static', filename='icons/garden-192.png') }}">
+    <link rel="icon" type="image/png" sizes="512x512" href="{{ url_for('static', filename='icons/garden-512.png') }}">
+    <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='icons/garden-180.png') }}">
+    <link rel="shortcut icon" href="{{ url_for('static', filename='icons/garden-32.png') }}">
+    
+    <!-- Web App Manifest -->
+    <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+    
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🌱 Garden Humidity Dashboard</h1>
+            <div class="status-indicator" id="status"></div>
+        </header>
+
+        <div class="controls">
+            <select id="deviceSelect">
+                <option value="">All Devices</option>
+            </select>
+            <select id="timeRange">
+                <option value="1">Last Hour</option>
+                <option value="6">Last 6 Hours</option>
+                <option value="24" selected>Last 24 Hours</option>
+                <option value="168">Last Week</option>
+            </select>
+            <button id="refreshBtn">Refresh</button>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <h3>Current Humidity</h3>
+                <div class="stat-value" id="currentHumidity">--</div>
+                <div class="stat-unit">%</div>
+            </div>
+            <div class="stat-card">
+                <h3>Average (24h)</h3>
+                <div class="stat-value" id="avgHumidity">--</div>
+                <div class="stat-unit">%</div>
+            </div>
+            <div class="stat-card">
+                <h3>Min/Max (24h)</h3>
+                <div class="stat-value" id="minMaxHumidity">--</div>
+                <div class="stat-unit">%</div>
+            </div>
+            <div class="stat-card">
+                <h3>Total Readings</h3>
+                <div class="stat-value" id="totalReadings">--</div>
+                <div class="stat-unit">readings</div>
+            </div>
+        </div>
+
+        <div class="chart-container">
+            <canvas id="humidityChart"></canvas>
+        </div>
+
+        <div class="recent-readings">
+            <h3>Recent Readings</h3>
+            <div class="table-container">
+                <table id="readingsTable">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Device</th>
+                            <th>Humidity</th>
+                            <th>Raw Value</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Icon Generator</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .icon-preview { margin: 20px 0; }
+        canvas { border: 1px solid #ccc; margin: 10px; }
+        button { background: #2ecc71; color: white; padding: 10px 20px; border: none; border-radius: 5px; margin: 5px; cursor: pointer; }
+        button:hover { background: #27ae60; }
+    </style>
+</head>
+<body>
+    <h1>Garden App Icon Generator</h1>
+    <p>This page will generate PNG icons using the 🌱 emoji on a clean white background. Right-click on each canvas below and "Save image as" to download the icons.</p>
+    
+    <div class="icon-preview">
+        <h3>32x32 (Favicon)</h3>
+        <canvas id="canvas32" width="32" height="32"></canvas>
+        <button onclick="downloadCanvas('canvas32', 'garden-32.png')">Download</button>
+    </div>
+    
+    <div class="icon-preview">
+        <h3>180x180 (Apple Touch Icon)</h3>
+        <canvas id="canvas180" width="180" height="180"></canvas>
+        <button onclick="downloadCanvas('canvas180', 'garden-180.png')">Download</button>
+    </div>
+    
+    <div class="icon-preview">
+        <h3>192x192 (Android)</h3>
+        <canvas id="canvas192" width="192" height="192"></canvas>
+        <button onclick="downloadCanvas('canvas192', 'garden-192.png')">Download</button>
+    </div>
+    
+    <div class="icon-preview">
+        <h3>512x512 (High Resolution)</h3>
+        <canvas id="canvas512" width="512" height="512"></canvas>
+        <button onclick="downloadCanvas('canvas512', 'garden-512.png')">Download</button>
+    </div>
+
+    <script>
+        function generateIcon(canvasId, size) {
+            const canvas = document.getElementById(canvasId);
+            const ctx = canvas.getContext('2d');
+            
+            // Clear canvas
+            ctx.clearRect(0, 0, size, size);
+            
+            // Draw background circle
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(size/2, size/2, size/2, 0, 2 * Math.PI);
+            ctx.fill();
+            
+            // Draw emoji (reduced size to prevent clipping on Android)
+            const fontSize = Math.floor(size * 0.42); // 42% of canvas size (30% smaller than 60%)
+            ctx.font = `${fontSize}px Arial, sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            // Center the emoji
+            ctx.fillText('🌱', size/2, size/2);
+        }
+
+        function downloadCanvas(canvasId, filename) {
+            const canvas = document.getElementById(canvasId);
+            const link = document.createElement('a');
+            link.download = filename;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        }
+
+        // Generate all icons when page loads
+        window.onload = function() {
+            generateIcon('canvas32', 32);
+            generateIcon('canvas180', 180);
+            generateIcon('canvas192', 192);
+            generateIcon('canvas512', 512);
+        };
+    </script>
+</body>
+</html>
