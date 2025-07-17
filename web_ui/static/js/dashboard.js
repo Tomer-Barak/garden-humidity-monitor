@@ -8,13 +8,18 @@ class HumidityDashboard {
     async init() {
         this.setupEventListeners();
         await this.loadDevices();
+        await this.loadSensors();
         await this.loadData();
         this.startAutoRefresh();
     }
 
     setupEventListeners() {
         document.getElementById('refreshBtn').addEventListener('click', () => this.loadData());
-        document.getElementById('deviceSelect').addEventListener('change', () => this.loadData());
+        document.getElementById('deviceSelect').addEventListener('change', () => {
+            this.loadSensors();
+            this.loadData();
+        });
+        document.getElementById('sensorSelect').addEventListener('change', () => this.loadData());
         document.getElementById('timeRange').addEventListener('change', () => this.loadData());
     }
 
@@ -40,8 +45,40 @@ class HumidityDashboard {
         }
     }
 
+    async loadSensors() {
+        const deviceId = document.getElementById('deviceSelect').value;
+        
+        try {
+            let url = '/api/sensors';
+            if (deviceId) {
+                url = `/api/devices/${deviceId}/sensors`;
+            }
+            
+            const response = await fetch(url);
+            const data = await response.json();
+            
+            if (data.status === 'success') {
+                const select = document.getElementById('sensorSelect');
+                select.innerHTML = '<option value="">All Sensors</option>';
+                
+                const sensors = data.sensors || [];
+                sensors.forEach(sensor => {
+                    const option = document.createElement('option');
+                    option.value = sensor.sensor_id;
+                    const displayName = sensor.sensor_id || `Pin ${sensor.sensor_pin}`;
+                    option.textContent = `${displayName} (${sensor.reading_count} readings)`;
+                    select.appendChild(option);
+                });
+            }
+        } catch (error) {
+            console.error('Error loading sensors:', error);
+            this.showError('Failed to load sensors');
+        }
+    }
+
     async loadData() {
         const deviceId = document.getElementById('deviceSelect').value;
+        const sensorId = document.getElementById('sensorSelect').value;
         const hours = document.getElementById('timeRange').value;
         
         try {
@@ -49,13 +86,13 @@ class HumidityDashboard {
             document.getElementById('status').className = 'status-indicator online';
             
             // Load stats
-            await this.loadStats(deviceId, hours);
+            await this.loadStats(deviceId, sensorId, hours);
             
             // Load history for chart
-            await this.loadHistory(deviceId, hours);
+            await this.loadHistory(deviceId, sensorId, hours);
             
             // Load recent readings
-            await this.loadRecentReadings(deviceId);
+            await this.loadRecentReadings(deviceId, sensorId);
             
         } catch (error) {
             console.error('Error loading data:', error);
@@ -64,9 +101,10 @@ class HumidityDashboard {
         }
     }
 
-    async loadStats(deviceId, hours) {
+    async loadStats(deviceId, sensorId, hours) {
         const params = new URLSearchParams();
         if (deviceId) params.append('device_id', deviceId);
+        if (sensorId) params.append('sensor_id', sensorId);
         params.append('hours', hours);
 
         const response = await fetch(`/humidity/stats?${params}`);
@@ -90,9 +128,10 @@ class HumidityDashboard {
         }
     }
 
-    async loadHistory(deviceId, hours) {
+    async loadHistory(deviceId, sensorId, hours) {
         const params = new URLSearchParams();
         if (deviceId) params.append('device_id', deviceId);
+        if (sensorId) params.append('sensor_id', sensorId);
         params.append('hours', hours);
 
         const response = await fetch(`/humidity/history?${params}`);
@@ -103,9 +142,10 @@ class HumidityDashboard {
         }
     }
 
-    async loadRecentReadings(deviceId) {
+    async loadRecentReadings(deviceId, sensorId) {
         const params = new URLSearchParams();
         if (deviceId) params.append('device_id', deviceId);
+        if (sensorId) params.append('sensor_id', sensorId);
         params.append('limit', '10');
 
         const response = await fetch(`/humidity/latest?${params}`);
@@ -135,72 +175,140 @@ class HumidityDashboard {
         // Sort readings by timestamp (oldest first for chart)
         const sortedReadings = readings.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
 
-        const labels = sortedReadings.map(r => {
-            // server_timestamp is already in Israel time with timezone info
-            const date = new Date(r.created_at);
-            return date.toLocaleTimeString('en-GB', { 
-                hour: '2-digit',
-                minute: '2-digit'
-            });
+        // Group readings by sensor if we have multiple sensors
+        const sensorGroups = {};
+        const selectedSensor = document.getElementById('sensorSelect').value;
+        
+        sortedReadings.forEach(reading => {
+            const sensorKey = reading.sensor_id || 'Unknown Sensor';
+            if (!sensorGroups[sensorKey]) {
+                sensorGroups[sensorKey] = [];
+            }
+            sensorGroups[sensorKey].push(reading);
         });
-        const humidityData = sortedReadings.map(r => r.humidity_percent);
 
-        this.chart = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: 'Humidity %',
-                    data: humidityData,
-                    borderColor: '#3498db',
-                    backgroundColor: 'rgba(52, 152, 219, 0.1)',
+        const sensorKeys = Object.keys(sensorGroups);
+        const colors = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12', '#9b59b6', '#34495e'];
+        
+        let datasets = [];
+        
+        if (selectedSensor || sensorKeys.length === 1) {
+            // Single sensor view - use all readings
+            const labels = sortedReadings.map(r => {
+                const date = new Date(r.created_at);
+                return date.toLocaleTimeString('en-GB', { 
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+            });
+            const humidityData = sortedReadings.map(r => r.humidity_percent);
+            
+            const sensorName = selectedSensor || sensorKeys[0] || 'Humidity';
+            
+            datasets.push({
+                label: sensorName,
+                data: humidityData,
+                borderColor: colors[0],
+                backgroundColor: `${colors[0]}20`,
+                borderWidth: 2,
+                fill: true,
+                tension: 0.4,
+                pointRadius: 0,
+                pointHoverRadius: 6,
+                pointHoverBackgroundColor: colors[0],
+                pointHoverBorderColor: '#fff',
+                pointHoverBorderWidth: 2
+            });
+            
+            this.chart = new Chart(ctx, {
+                type: 'line',
+                data: { labels, datasets },
+                options: this.getChartOptions()
+            });
+        } else {
+            // Multiple sensors view - create dataset for each sensor
+            // Find common time points or use all unique times
+            const allTimes = [...new Set(sortedReadings.map(r => r.created_at))].sort();
+            const labels = allTimes.map(time => {
+                const date = new Date(time);
+                return date.toLocaleTimeString('en-GB', { 
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+            });
+            
+            sensorKeys.forEach((sensorKey, index) => {
+                const sensorReadings = sensorGroups[sensorKey];
+                const color = colors[index % colors.length];
+                
+                // Map sensor readings to all time points
+                const sensorData = allTimes.map(time => {
+                    const reading = sensorReadings.find(r => r.created_at === time);
+                    return reading ? reading.humidity_percent : null;
+                });
+                
+                datasets.push({
+                    label: sensorKey,
+                    data: sensorData,
+                    borderColor: color,
+                    backgroundColor: `${color}20`,
                     borderWidth: 2,
-                    fill: true,
+                    fill: false,
                     tension: 0.4,
-                    pointRadius: 0,  // Hide data points
-                    pointHoverRadius: 6,  // Show larger point on hover
-                    pointHoverBackgroundColor: '#3498db',
+                    pointRadius: 0,
+                    pointHoverRadius: 6,
+                    pointHoverBackgroundColor: color,
                     pointHoverBorderColor: '#fff',
-                    pointHoverBorderWidth: 2
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        max: 100,
-                        title: {
-                            display: true,
-                            text: 'Humidity (%)'
-                        },
-                        grid: {
-                            color: 'rgba(0,0,0,0.1)'
-                        }
+                    pointHoverBorderWidth: 2,
+                    spanGaps: true
+                });
+            });
+            
+            this.chart = new Chart(ctx, {
+                type: 'line',
+                data: { labels, datasets },
+                options: this.getChartOptions()
+            });
+        }
+    }
+
+    getChartOptions() {
+        return {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    max: 100,
+                    title: {
+                        display: true,
+                        text: 'Humidity (%)'
                     },
-                    x: {
-                        title: {
-                            display: true,
-                            text: 'Time'
-                        },
-                        grid: {
-                            color: 'rgba(0,0,0,0.1)'
-                        }
+                    grid: {
+                        color: 'rgba(0,0,0,0.1)'
                     }
                 },
-                plugins: {
-                    legend: {
+                x: {
+                    title: {
                         display: true,
-                        position: 'top'
+                        text: 'Time'
                     },
-                    tooltip: {
-                        mode: 'index',
-                        intersect: false,
+                    grid: {
+                        color: 'rgba(0,0,0,0.1)'
                     }
                 }
+            },
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'top'
+                },
+                tooltip: {
+                    mode: 'index',
+                    intersect: false,
+                }
             }
-        });
+        };
     }
 
     updateTable(readings) {
@@ -209,7 +317,7 @@ class HumidityDashboard {
 
         if (!readings || readings.length === 0) {
             const row = document.createElement('tr');
-            row.innerHTML = '<td colspan="4" style="text-align: center; color: #7f8c8d;">No recent readings available</td>';
+            row.innerHTML = '<td colspan="5" style="text-align: center; color: #7f8c8d;">No recent readings available</td>';
             tbody.appendChild(row);
             return;
         }
@@ -218,6 +326,8 @@ class HumidityDashboard {
             const row = document.createElement('tr');
             // server_timestamp is already in Israel time with timezone info
             const date = new Date(reading.created_at);
+            const sensorInfo = reading.sensor_id ? reading.sensor_id : (reading.sensor_pin ? `Pin ${reading.sensor_pin}` : 'Unknown');
+            
             row.innerHTML = `
                 <td>${date.toLocaleString('en-GB', { 
                     year: 'numeric',
@@ -228,6 +338,7 @@ class HumidityDashboard {
                     second: '2-digit'
                 })}</td>
                 <td><span class="device-badge">${reading.device_id}</span></td>
+                <td><span class="sensor-badge">${sensorInfo}</span></td>
                 <td><strong>${reading.humidity_percent.toFixed(1)}%</strong></td>
                 <td>${reading.raw_value}</td>
             `;
@@ -273,7 +384,7 @@ document.addEventListener('DOMContentLoaded', () => {
     new HumidityDashboard();
 });
 
-// Add some additional CSS for device badges
+// Add some additional CSS for device and sensor badges
 const style = document.createElement('style');
 style.textContent = `
     .device-badge {
@@ -282,6 +393,14 @@ style.textContent = `
         border-radius: 12px;
         font-size: 12px;
         color: #1976d2;
+        font-weight: 500;
+    }
+    .sensor-badge {
+        background: #f3e5f5;
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 12px;
+        color: #7b1fa2;
         font-weight: 500;
     }
 `;

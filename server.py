@@ -74,41 +74,113 @@ class HumidityDatabase:
             os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
 
         with self.get_connection() as conn:
-            conn.execute('''
-                         CREATE TABLE IF NOT EXISTS humidity_readings
-                         (
-                             id
-                             INTEGER
-                             PRIMARY
-                             KEY
-                             AUTOINCREMENT,
-                             device_id
-                             TEXT
-                             NOT
-                             NULL,
-                             raw_value
-                             INTEGER
-                             NOT
-                             NULL,
-                             humidity_percent
-                             REAL
-                             NOT
-                             NULL,
-                             esp32_timestamp
-                             INTEGER,
-                             server_timestamp
-                             TEXT
-                             NOT
-                             NULL,
-                             created_at
-                             TIMESTAMP
-                             DEFAULT
-                             CURRENT_TIMESTAMP
-                         )
-                         ''')
+            # Check if we need to migrate existing table
+            cursor = conn.execute("PRAGMA table_info(humidity_readings)")
+            columns = [row[1] for row in cursor.fetchall()]
+            
+            # Create the updated table with sensor information
+            if 'sensor_id' not in columns:
+                # Create new table with sensor support
+                conn.execute('''
+                             CREATE TABLE IF NOT EXISTS humidity_readings_new
+                             (
+                                 id
+                                 INTEGER
+                                 PRIMARY
+                                 KEY
+                                 AUTOINCREMENT,
+                                 device_id
+                                 TEXT
+                                 NOT
+                                 NULL,
+                                 sensor_id
+                                 TEXT,
+                                 sensor_pin
+                                 INTEGER,
+                                 raw_value
+                                 INTEGER
+                                 NOT
+                                 NULL,
+                                 humidity_percent
+                                 REAL
+                                 NOT
+                                 NULL,
+                                 esp32_timestamp
+                                 INTEGER,
+                                 server_timestamp
+                                 TEXT
+                                 NOT
+                                 NULL,
+                                 created_at
+                                 TIMESTAMP
+                                 DEFAULT
+                                 CURRENT_TIMESTAMP
+                             )
+                             ''')
+                
+                # Migrate existing data if old table exists
+                cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='humidity_readings'")
+                if cursor.fetchone():
+                    conn.execute('''
+                        INSERT INTO humidity_readings_new 
+                        (device_id, raw_value, humidity_percent, esp32_timestamp, server_timestamp, created_at)
+                        SELECT device_id, raw_value, humidity_percent, esp32_timestamp, server_timestamp, created_at
+                        FROM humidity_readings
+                    ''')
+                    conn.execute('DROP TABLE humidity_readings')
+                
+                conn.execute('ALTER TABLE humidity_readings_new RENAME TO humidity_readings')
+            else:
+                # Table already has sensor columns, just ensure it exists
+                conn.execute('''
+                             CREATE TABLE IF NOT EXISTS humidity_readings
+                             (
+                                 id
+                                 INTEGER
+                                 PRIMARY
+                                 KEY
+                                 AUTOINCREMENT,
+                                 device_id
+                                 TEXT
+                                 NOT
+                                 NULL,
+                                 sensor_id
+                                 TEXT,
+                                 sensor_pin
+                                 INTEGER,
+                                 raw_value
+                                 INTEGER
+                                 NOT
+                                 NULL,
+                                 humidity_percent
+                                 REAL
+                                 NOT
+                                 NULL,
+                                 esp32_timestamp
+                                 INTEGER,
+                                 server_timestamp
+                                 TEXT
+                                 NOT
+                                 NULL,
+                                 created_at
+                                 TIMESTAMP
+                                 DEFAULT
+                                 CURRENT_TIMESTAMP
+                             )
+                             ''')
+            
+            # Create indexes
             conn.execute('''
                          CREATE INDEX IF NOT EXISTS idx_device_timestamp
                              ON humidity_readings(device_id, created_at)
+                         ''')
+            conn.execute('''
+                         CREATE INDEX IF NOT EXISTS idx_sensor_timestamp
+                             ON humidity_readings(sensor_id, created_at)
+                         ''')
+            conn.execute('''
+                         CREATE INDEX IF NOT EXISTS idx_device_sensor_timestamp
+                             ON humidity_readings(device_id, sensor_id, created_at)
                          ''')
             conn.commit()
 
@@ -122,45 +194,47 @@ class HumidityDatabase:
         finally:
             conn.close()
 
-    def insert_reading(self, device_id, raw_value, humidity_percent, esp32_timestamp):
-        """Insert a new humidity reading"""
+    def insert_reading(self, device_id, raw_value, humidity_percent, esp32_timestamp, sensor_id=None, sensor_pin=None):
+        """Insert a new humidity reading with optional sensor information"""
         server_timestamp = get_israel_timestamp()
 
         with self.get_connection() as conn:
             conn.execute('''
                          INSERT INTO humidity_readings
-                         (device_id, raw_value, humidity_percent, esp32_timestamp, server_timestamp)
-                         VALUES (?, ?, ?, ?, ?)
-                         ''', (device_id, raw_value, humidity_percent, esp32_timestamp, server_timestamp))
+                         (device_id, sensor_id, sensor_pin, raw_value, humidity_percent, esp32_timestamp, server_timestamp)
+                         VALUES (?, ?, ?, ?, ?, ?, ?)
+                         ''', (device_id, sensor_id, sensor_pin, raw_value, humidity_percent, esp32_timestamp, server_timestamp))
             conn.commit()
 
-    def get_latest_readings(self, device_id=None, limit=100):
-        """Get latest readings, optionally filtered by device"""
+    def get_latest_readings(self, device_id=None, sensor_id=None, limit=100):
+        """Get latest readings, optionally filtered by device and/or sensor"""
         query = '''
-                SELECT id, device_id, raw_value, humidity_percent, esp32_timestamp, 
+                SELECT id, device_id, sensor_id, sensor_pin, raw_value, humidity_percent, esp32_timestamp, 
                        server_timestamp, server_timestamp as created_at
                 FROM humidity_readings
                 WHERE (? IS NULL OR device_id = ?)
+                AND (? IS NULL OR sensor_id = ?)
                 ORDER BY created_at DESC LIMIT ?
                 '''
 
         with self.get_connection() as conn:
-            cursor = conn.execute(query, (device_id, device_id, limit))
+            cursor = conn.execute(query, (device_id, device_id, sensor_id, sensor_id, limit))
             return [dict(row) for row in cursor.fetchall()]
 
-    def get_readings_since(self, hours=24, device_id=None):
+    def get_readings_since(self, hours=24, device_id=None, sensor_id=None):
         """Get readings from the last N hours"""
         query = '''
-            SELECT id, device_id, raw_value, humidity_percent, esp32_timestamp, 
+            SELECT id, device_id, sensor_id, sensor_pin, raw_value, humidity_percent, esp32_timestamp, 
                    server_timestamp, server_timestamp as created_at
             FROM humidity_readings 
             WHERE (? IS NULL OR device_id = ?)
+            AND (? IS NULL OR sensor_id = ?)
             AND created_at > datetime('now', '-{} hours')
             ORDER BY created_at DESC
         '''.format(hours)
 
         with self.get_connection() as conn:
-            cursor = conn.execute(query, (device_id, device_id))
+            cursor = conn.execute(query, (device_id, device_id, sensor_id, sensor_id))
             return [dict(row) for row in cursor.fetchall()]
 
     def cleanup_old_data(self, days=30):
@@ -194,15 +268,23 @@ def receive_humidity_data():
             if field not in data:
                 return jsonify({'error': f'Missing required field: {field}'}), 400
 
+        # Extract sensor information (optional for backward compatibility)
+        sensor_id = data.get('sensor_id')
+        sensor_pin = data.get('sensor_pin')
+
         # Insert into database
         db.insert_reading(
             device_id=data['device_id'],
             raw_value=data['raw_value'],
             humidity_percent=data['humidity_percent'],
-            esp32_timestamp=data.get('timestamp')
+            esp32_timestamp=data.get('timestamp'),
+            sensor_id=sensor_id,
+            sensor_pin=sensor_pin
         )
 
-        logger.info(f"Received data from {data['device_id']}: "
+        # Enhanced logging with sensor information
+        sensor_info = f" ({sensor_id} on pin {sensor_pin})" if sensor_id else ""
+        logger.info(f"Received data from {data['device_id']}{sensor_info}: "
                     f"Raw={data['raw_value']}, Humidity={data['humidity_percent']}%")
 
         return jsonify({'status': 'success', 'message': 'Data received'}), 200
@@ -216,10 +298,11 @@ def receive_humidity_data():
 def get_latest_humidity():
     """Get latest humidity readings"""
     device_id = request.args.get('device_id')
+    sensor_id = request.args.get('sensor_id')
     limit = int(request.args.get('limit', 100))
 
     try:
-        readings = db.get_latest_readings(device_id=device_id, limit=limit)
+        readings = db.get_latest_readings(device_id=device_id, sensor_id=sensor_id, limit=limit)
         return jsonify({
             'status': 'success',
             'count': len(readings),
@@ -234,10 +317,11 @@ def get_latest_humidity():
 def get_humidity_history():
     """Get humidity readings from the last N hours"""
     device_id = request.args.get('device_id')
+    sensor_id = request.args.get('sensor_id')
     hours = int(request.args.get('hours', 24))
 
     try:
-        readings = db.get_readings_since(hours=hours, device_id=device_id)
+        readings = db.get_readings_since(hours=hours, device_id=device_id, sensor_id=sensor_id)
         return jsonify({
             'status': 'success',
             'hours': hours,
@@ -253,10 +337,11 @@ def get_humidity_history():
 def get_humidity_stats():
     """Get basic statistics about humidity readings"""
     device_id = request.args.get('device_id')
+    sensor_id = request.args.get('sensor_id')
     hours = int(request.args.get('hours', 24))
 
     try:
-        readings = db.get_readings_since(hours=hours, device_id=device_id)
+        readings = db.get_readings_since(hours=hours, device_id=device_id, sensor_id=sensor_id)
 
         if not readings:
             return jsonify({
@@ -336,6 +421,59 @@ def get_devices():
         })
     except Exception as e:
         logger.error(f"Error getting devices: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+
+@app.route('/api/sensors')
+def get_sensors():
+    """Get list of sensors with device information"""
+    try:
+        with db.get_connection() as conn:
+            cursor = conn.execute('''
+                SELECT DISTINCT device_id, sensor_id, sensor_pin,
+                       COUNT(*) as reading_count,
+                       MAX(created_at) as last_seen,
+                       AVG(humidity_percent) as avg_humidity
+                FROM humidity_readings 
+                WHERE sensor_id IS NOT NULL
+                GROUP BY device_id, sensor_id, sensor_pin
+                ORDER BY device_id, sensor_id
+            ''')
+            sensors = [dict(row) for row in cursor.fetchall()]
+        
+        return jsonify({
+            'status': 'success',
+            'sensors': sensors
+        })
+    except Exception as e:
+        logger.error(f"Error getting sensors: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+
+@app.route('/api/devices/<device_id>/sensors')
+def get_device_sensors(device_id):
+    """Get sensors for a specific device"""
+    try:
+        with db.get_connection() as conn:
+            cursor = conn.execute('''
+                SELECT DISTINCT sensor_id, sensor_pin,
+                       COUNT(*) as reading_count,
+                       MAX(created_at) as last_seen,
+                       AVG(humidity_percent) as avg_humidity
+                FROM humidity_readings 
+                WHERE device_id = ? AND sensor_id IS NOT NULL
+                GROUP BY sensor_id, sensor_pin
+                ORDER BY sensor_id
+            ''', (device_id,))
+            sensors = [dict(row) for row in cursor.fetchall()]
+        
+        return jsonify({
+            'status': 'success',
+            'device_id': device_id,
+            'sensors': sensors
+        })
+    except Exception as e:
+        logger.error(f"Error getting sensors for device {device_id}: {e}")
         return jsonify({'error': 'Internal server error'}), 500
 
 
