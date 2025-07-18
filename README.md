@@ -4,15 +4,15 @@
 
 ## Introduction
 
-This project began as a simple idea: to monitor soil moisture levels in a garden using ESP32 microcontrollers. Over time, it evolved into a robust system capable of handling multiple sensors per device, storing data in a database, and visualizing trends through a responsive web dashboard. The goal was to create a solution that is not only functional but also scalable and easy to use for anyone interested in smart gardening.
+The Garden Multi-Sensor Humidity Monitoring System is a comprehensive IoT solution designed to monitor soil moisture levels using ESP32 microcontrollers. The system provides real-time data collection, storage, and visualization capabilities through a web-based dashboard. This scalable architecture supports multiple sensors per device and offers historical data analysis for informed irrigation management.
 
-## The Problem
+## Overview
 
-Maintaining optimal soil moisture is critical for healthy plant growth, but manually checking soil conditions can be time-consuming and inconsistent. I wanted to automate this process, enabling real-time monitoring and historical analysis of soil moisture levels across multiple areas of a garden.
+Optimal soil moisture management is essential for healthy plant growth and efficient water usage. Manual monitoring methods are labor-intensive and provide limited temporal coverage. This system addresses these challenges by providing automated, continuous monitoring capabilities with data logging and trend analysis.
 
-## The Solution
+## System Architecture
 
-The Garden Multi-Sensor Humidity Monitoring System combines hardware, software, and web technologies to provide a complete solution:
+The system implements a three-tier architecture comprising sensor nodes, data processing server, and user interface:
 
 - **ESP32 Microcontrollers**: Each device supports multiple capacitive soil moisture sensors, allowing for detailed monitoring of different garden zones.
 - **Python Flask Server**: A lightweight server collects data from ESP32 devices, stores it in a SQLite database, and serves a web-based dashboard.
@@ -24,8 +24,8 @@ The Garden Multi-Sensor Humidity Monitoring System combines hardware, software, 
 - **Real-Time Monitoring**: Continuous data collection with adjustable intervals.
 - **Data Storage**: Historical readings are stored in a SQLite database.
 - **Interactive Dashboard**: Visualize trends, filter data by device or sensor, and view multiple sensors on the same chart.
-- **Progressive Web App (PWA)**: Install the dashboard on mobile devices for easy access.
-- **Automatic Cleanup**: Old data is purged to manage database size.
+- **Progressive Web App (PWA)**: Mobile-responsive dashboard with offline capability for cross-platform access.
+- **Automated Data Management**: Configurable data retention policies with automatic cleanup routines.
 
 ## System Architecture
 
@@ -45,86 +45,83 @@ The Garden Multi-Sensor Humidity Monitoring System combines hardware, software, 
                                     └──────────────┘
 ```
 
-## How It Works
+## Implementation Details
 
 ### ESP32 Firmware
 
-The ESP32 reads analog values from soil moisture sensors, converts them to humidity percentages, and sends the data to the server via HTTP POST requests. Each sensor is identified by name and GPIO pin.
+The ESP32 microcontroller firmware performs analog-to-digital conversion of capacitive soil moisture sensor readings, applies calibration algorithms to convert raw values to humidity percentages, and transmits structured data to the server via HTTP POST requests. Each sensor is uniquely identified by name and GPIO pin assignment.
 
 ### Python Flask Server
 
-The server receives data from ESP32 devices, stores it in a SQLite database, and provides API endpoints for retrieving and visualizing the data. It also serves the web dashboard.
+The server application implements RESTful API endpoints for data ingestion and retrieval. It maintains persistent storage using SQLite database and provides both raw data access and aggregated statistics. The server also hosts the web dashboard and implements configurable data retention policies.
 
 ### Web Dashboard
 
-The dashboard is a responsive interface that allows users to:
-- View real-time and historical data
-- Filter data by device or sensor
-- Visualize trends with interactive charts
+The responsive web interface provides real-time monitoring capabilities and historical data visualization through interactive charts. Features include device and sensor filtering, multi-sensor comparison views, and mobile-optimized design patterns.
 
-## Getting Started
+## Installation and Configuration
 
 ### Hardware Requirements
 
-- ESP32 development board
-- Capacitive soil moisture sensors (up to 3 per ESP32)
-- Power supply for ESP32
-- Server/computer to run the Python application
+- ESP32 development board (ESP32-WROOM-32 or compatible)
+- Capacitive soil moisture sensors (maximum 3 per ESP32 unit)
+- Regulated power supply (3.3V/5V depending on sensor specifications)
+- Host system for server deployment (Linux/Windows/macOS)
 
 ### Software Setup
 
-#### ESP32
+#### ESP32 Firmware Deployment
 
-1. Install the Arduino IDE and ESP32 board support.
+1. Install Arduino IDE with ESP32 board support package.
 2. Install required libraries: WiFi, HTTPClient, ArduinoJson.
-3. Open `esp32.ino` in the Arduino IDE.
-4. Copy `config.h.example` to `config.h` and update it with your WiFi credentials and server IP.
-5. Adjust pin configuration and calibration values in `config.h` if needed.
-6. Upload the sketch to your ESP32.
+3. Configure network and server parameters by copying `config.h.example` to `config.h`.
+4. Update WiFi credentials and server IP address in configuration file.
+5. Adjust sensor pin assignments and calibration parameters as needed.
+6. Compile and upload firmware to ESP32 device.
 
-#### Python Server
+#### Server Installation
 
-1. Ensure Python 3.6+ is installed.
-2. Install required packages:
+1. Ensure Python 3.6+ runtime environment.
+2. Install dependencies:
    ```
    pip install flask pytz
    ```
-3. Configure server settings in `server.py` (e.g., port, database path).
-4. Run the server:
+3. Configure server parameters in `server.py` (port, database path, retention policies).
+4. Launch server:
    ```
    python server.py
    ```
 
-#### Web Dashboard
+#### Dashboard Access
 
-Access the dashboard by navigating to:
+Access the web interface at:
 ```
 http://[server-ip]:8080
 ```
 
-## API Endpoints
+## API Documentation
 
-The server provides several API endpoints for interacting with the data:
-- **POST /humidity**: Submit humidity data.
-- **GET /humidity/latest**: Retrieve the latest readings.
-- **GET /humidity/history**: Retrieve historical data.
-- **GET /humidity/stats**: Retrieve statistical data.
-- **GET /health**: Check server health.
+The server exposes RESTful endpoints for data management and system monitoring:
+- **POST /humidity**: Submit sensor readings in JSON format.
+- **GET /humidity/latest**: Retrieve most recent readings from all sensors.
+- **GET /humidity/history**: Query historical data with optional filtering parameters.
+- **GET /humidity/stats**: Obtain statistical summaries and aggregated metrics.
+- **GET /health**: System health check and status monitoring.
 
-## Customization
+## Configuration Options
 
-### ESP32 Configuration
+### ESP32 Sensor Configuration
 
-Modify `config.h` to adjust the number of sensors, GPIO pins, and sensor names:
+Modify `config.h` to specify sensor array parameters:
 ```cpp
 #define NUM_SENSORS 3
 #define HUMIDITY_PINS {32, 33, 34}
 #define SENSOR_NAMES {"Garden_1", "Garden_2", "Garden_3"}
 ```
 
-### Server Settings
+### Server Configuration
 
-Update the `CONFIG` dictionary in `server.py` to customize server behavior:
+Adjust operational parameters in the `CONFIG` dictionary within `server.py`:
 ```python
 CONFIG = {
     'host': '0.0.0.0',
@@ -136,23 +133,23 @@ CONFIG = {
 }
 ```
 
-## Future Plans
+## Development Roadmap
 
-- Add authentication for the dashboard.
-- Implement alerts for low humidity levels.
-- Support additional sensor types (e.g., temperature, light).
-- Develop a mobile app for notifications.
-- Integrate automated irrigation control.
+- Implementation of authentication and authorization mechanisms
+- Alert system for threshold-based notifications
+- Support for additional sensor types (temperature, light intensity, pH)
+- Mobile application development for push notifications
+- Integration with automated irrigation control systems
 
 ## License
 
-This project is open-source and available under the [MIT License](LICENSE).
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
 
-## Acknowledgments
+## Technical Support
 
-- The Flask team for their excellent web framework.
-- The ESP32 community for their support and documentation.
+- Flask Framework: Official documentation and community support
+- ESP32 Platform: Comprehensive documentation and developer resources
 
-## Contributors
+## Author
 
-- **Tomer Barak** - Project creator and developer.
+**Tomer Barak** - System architect and lead developer
