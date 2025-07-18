@@ -1,5 +1,7 @@
 # Garden Multi-Sensor Humidity Monitoring System
 
+![Garden Dashboard](web_ui/static/icons/garden-192.png)
+
 ## Introduction
 
 This project began as a simple idea: to monitor soil moisture levels in a garden using ESP32 microcontrollers. Over time, it evolved into a robust system capable of handling multiple sensors per device, storing data in a database, and visualizing trends through a responsive web dashboard. The goal was to create a solution that is not only functional but also scalable and easy to use for anyone interested in smart gardening.
@@ -38,8 +40,8 @@ The Garden Multi-Sensor Humidity Monitoring System combines hardware, software, 
                                           ▼
                                     ┌──────────────┐
                                     │  humidity.db │
-                                    │ (with sensor │
-                                    │ identification)│
+                                    │              │
+                                    │              │
                                     └──────────────┘
 ```
 
