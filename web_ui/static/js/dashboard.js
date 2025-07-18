@@ -11,6 +11,11 @@ class HumidityDashboard {
         await this.loadDevices();
         await this.loadSensors();
         await this.loadData();
+        
+        // Set initial time range labels based on default selection (24h)
+        const initialHours = document.getElementById('timeRange').value;
+        this.updateTimeRangeLabels(initialHours);
+        
         this.startAutoRefresh();
     }
 
@@ -266,6 +271,9 @@ class HumidityDashboard {
         if (sensorId) params.append('sensor_id', sensorId);
         params.append('hours', hours);
 
+        // Update the card headers to reflect the selected time range
+        this.updateTimeRangeLabels(hours);
+
         const response = await fetch(`/humidity/stats?${params}`);
         const data = await response.json();
 
@@ -356,7 +364,19 @@ class HumidityDashboard {
             sensorGroups[sensorKey].push(reading);
         });
 
-        const sensorKeys = Object.keys(sensorGroups);
+        // Sort sensor keys to ensure consistent color assignment
+        // ID-ed sensors (garden_1, garden_2, etc.) come first in sorted order
+        // Non-ID-ed sensors (Unknown Sensor) come last
+        const sensorKeys = Object.keys(sensorGroups).sort((a, b) => {
+            // Put "Unknown Sensor" or sensors without proper IDs at the end
+            if (a === 'Unknown Sensor' && b !== 'Unknown Sensor') return 1;
+            if (b === 'Unknown Sensor' && a !== 'Unknown Sensor') return -1;
+            
+            // For proper sensor IDs, sort alphabetically/numerically
+            // This ensures garden_1, garden_2, garden_3... maintain consistent order
+            return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+        });
+        
         const colors = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12', '#9b59b6', '#34495e'];
         
         let datasets = [];
@@ -451,9 +471,6 @@ class HumidityDashboard {
                 options: this.getChartOptions(isSampled)
             });
         }
-        
-        // Show sampling indicator if data was sampled
-        this.updateSamplingIndicator(isSampled, readings.length);
     }
 
     getChartOptions(isSampled = false) {
@@ -494,50 +511,7 @@ class HumidityDashboard {
             }
         };
 
-        // Add subtitle if data is sampled
-        if (isSampled) {
-            baseOptions.plugins.subtitle = {
-                display: true,
-                text: 'Data is sampled for performance (~360 points)',
-                font: {
-                    size: 11,
-                    style: 'italic'
-                },
-                color: '#7f8c8d'
-            };
-        }
-
         return baseOptions;
-    }
-
-    updateSamplingIndicator(isSampled, dataPointCount) {
-        // Remove existing indicator
-        const existingIndicator = document.querySelector('.sampling-indicator');
-        if (existingIndicator) {
-            existingIndicator.remove();
-        }
-
-        if (isSampled) {
-            const indicator = document.createElement('div');
-            indicator.className = 'sampling-indicator';
-            indicator.style.cssText = `
-                background: #f8f9fa;
-                border: 1px solid #e9ecef;
-                border-radius: 4px;
-                padding: 8px 12px;
-                margin: 5px 0;
-                font-size: 12px;
-                color: #6c757d;
-                text-align: center;
-            `;
-            indicator.innerHTML = `
-                📊 Data sampled for performance: showing ${dataPointCount} points 
-                <span style="font-weight: 500;">(full resolution available for "Last Hour")</span>
-            `;
-            
-            const chartContainer = document.querySelector('.chart-container');
-            chartContainer.appendChild(indicator);
-        }
     }
 
     updateTable(readings) {
@@ -571,13 +545,43 @@ class HumidityDashboard {
                     minute: '2-digit',
                     second: '2-digit'
                 })}</td>
-                <td><span class="device-badge">${reading.device_id}</span></td>
                 <td><span class="sensor-badge">${sensorInfo}</span></td>
                 <td><strong>${reading.humidity_percent.toFixed(1)}%</strong></td>
                 <td>${reading.raw_value}</td>
+                <td><span class="device-badge">${reading.device_id}</span></td>
             `;
             tbody.appendChild(row);
         });
+    }
+
+    updateTimeRangeLabels(hours) {
+        // Find the stat cards that need updating
+        const avgHeader = document.querySelector('.stat-card:nth-child(2) h3');
+        const minMaxHeader = document.querySelector('.stat-card:nth-child(3) h3');
+        const totalReadingsHeader = document.querySelector('.stat-card:nth-child(4) h3');
+        
+        // Update the headers based on the selected time range
+        if (avgHeader && minMaxHeader && totalReadingsHeader) {
+            let timeText;
+            
+            // Determine the time text based on hours
+            if (hours == 1) {
+                timeText = '(1h)';
+            } else if (hours == 6) {
+                timeText = '(6h)';
+            } else if (hours == 24) {
+                timeText = '(24h)';
+            } else if (hours == 168) {
+                timeText = '(1w)';
+            } else {
+                timeText = `(${hours}h)`;
+            }
+            
+            // Update the text content
+            avgHeader.textContent = `Average ${timeText}`;
+            minMaxHeader.textContent = `Min/Max ${timeText}`;
+            totalReadingsHeader.textContent = `Total Readings ${timeText}`;
+        }
     }
 
     showError(message) {
