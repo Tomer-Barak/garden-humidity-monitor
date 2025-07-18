@@ -237,6 +237,49 @@ class HumidityDatabase:
             cursor = conn.execute(query, (device_id, device_id, sensor_id, sensor_id))
             return [dict(row) for row in cursor.fetchall()]
 
+    def get_sampled_readings_since(self, hours=24, device_id=None, sensor_id=None, sample_size=360):
+        """Get sampled readings from the last N hours to limit data points for performance"""
+        # Calculate sampling interval based on expected data points
+        # Assuming 1 reading every 10 seconds: hours * 3600 / 10 = total readings
+        total_expected_readings = hours * 360  # 360 readings per hour
+        
+        if total_expected_readings <= sample_size:
+            # No need to sample, return all data
+            return self.get_readings_since(hours, device_id, sensor_id)
+        
+        # Calculate sampling interval in seconds
+        sampling_interval_seconds = (hours * 3600) // sample_size
+        
+        # Use a query that samples every N seconds using row_number and modulo
+        query = '''
+            WITH ordered_readings AS (
+                SELECT *, 
+                       ROW_NUMBER() OVER (ORDER BY created_at ASC) as rn,
+                       COUNT(*) OVER () as total_count
+                FROM humidity_readings 
+                WHERE (? IS NULL OR device_id = ?)
+                AND (? IS NULL OR sensor_id = ?)
+                AND created_at > datetime('now', '-{} hours')
+            )
+            SELECT id, device_id, sensor_id, sensor_pin, raw_value, humidity_percent, 
+                   esp32_timestamp, server_timestamp, server_timestamp as created_at
+            FROM ordered_readings 
+            WHERE (rn - 1) % CAST(total_count / ? AS INTEGER) = 0
+            OR rn = total_count  -- Always include the last reading
+            ORDER BY created_at DESC
+        '''.format(hours)
+
+        with self.get_connection() as conn:
+            cursor = conn.execute(query, (device_id, device_id, sensor_id, sensor_id, sample_size))
+            readings = [dict(row) for row in cursor.fetchall()]
+            
+            # If we still have too many readings (edge case), do additional sampling
+            if len(readings) > sample_size * 1.2:  # Allow 20% overage
+                step = max(1, len(readings) // sample_size)
+                readings = readings[::step]
+                
+            return readings
+
     def cleanup_old_data(self, days=30):
         """Remove data older than specified days"""
         with self.get_connection() as conn:
@@ -315,18 +358,31 @@ def get_latest_humidity():
 
 @app.route('/humidity/history', methods=['GET'])
 def get_humidity_history():
-    """Get humidity readings from the last N hours"""
+    """Get humidity readings from the last N hours with optional sampling"""
     device_id = request.args.get('device_id')
     sensor_id = request.args.get('sensor_id')
     hours = int(request.args.get('hours', 24))
+    sample_size = request.args.get('sample_size')
 
     try:
-        readings = db.get_readings_since(hours=hours, device_id=device_id, sensor_id=sensor_id)
+        if sample_size:
+            # Use sampled data for better performance
+            readings = db.get_sampled_readings_since(
+                hours=hours, 
+                device_id=device_id, 
+                sensor_id=sensor_id, 
+                sample_size=int(sample_size)
+            )
+        else:
+            # Use original method for backward compatibility
+            readings = db.get_readings_since(hours=hours, device_id=device_id, sensor_id=sensor_id)
+        
         return jsonify({
             'status': 'success',
             'hours': hours,
             'count': len(readings),
-            'readings': readings
+            'readings': readings,
+            'sampled': bool(sample_size)
         })
     except Exception as e:
         logger.error(f"Error retrieving history: {e}")

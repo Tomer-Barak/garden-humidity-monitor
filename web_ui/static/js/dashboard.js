@@ -292,12 +292,22 @@ class HumidityDashboard {
         if (deviceId) params.append('device_id', deviceId);
         if (sensorId) params.append('sensor_id', sensorId);
         params.append('hours', hours);
+        
+        // Add sampling for longer time periods to improve performance
+        // Target: ~360 data points (same as 1 hour of 10-second intervals)
+        const targetDataPoints = 360;
+        
+        // Only sample if we expect more than 400 data points (small buffer)
+        const expectedDataPoints = hours * 360; // 360 readings per hour (10-second intervals)
+        if (expectedDataPoints > 400) {
+            params.append('sample_size', targetDataPoints);
+        }
 
         const response = await fetch(`/humidity/history?${params}`);
         const data = await response.json();
 
         if (data.status === 'success') {
-            this.updateChart(data.readings);
+            this.updateChart(data.readings, data.sampled);
         }
     }
 
@@ -315,7 +325,7 @@ class HumidityDashboard {
         }
     }
 
-    updateChart(readings) {
+    updateChart(readings, isSampled = false) {
         const ctx = document.getElementById('humidityChart').getContext('2d');
         
         if (this.chart) {
@@ -387,7 +397,7 @@ class HumidityDashboard {
             this.chart = new Chart(ctx, {
                 type: 'line',
                 data: { labels, datasets },
-                options: this.getChartOptions()
+                options: this.getChartOptions(isSampled)
             });
         } else {
             // Multiple sensors view - create dataset for each sensor
@@ -438,13 +448,16 @@ class HumidityDashboard {
             this.chart = new Chart(ctx, {
                 type: 'line',
                 data: { labels, datasets },
-                options: this.getChartOptions()
+                options: this.getChartOptions(isSampled)
             });
         }
+        
+        // Show sampling indicator if data was sampled
+        this.updateSamplingIndicator(isSampled, readings.length);
     }
 
-    getChartOptions() {
-        return {
+    getChartOptions(isSampled = false) {
+        const baseOptions = {
             responsive: true,
             maintainAspectRatio: false,
             scales: {
@@ -480,6 +493,51 @@ class HumidityDashboard {
                 }
             }
         };
+
+        // Add subtitle if data is sampled
+        if (isSampled) {
+            baseOptions.plugins.subtitle = {
+                display: true,
+                text: 'Data is sampled for performance (~360 points)',
+                font: {
+                    size: 11,
+                    style: 'italic'
+                },
+                color: '#7f8c8d'
+            };
+        }
+
+        return baseOptions;
+    }
+
+    updateSamplingIndicator(isSampled, dataPointCount) {
+        // Remove existing indicator
+        const existingIndicator = document.querySelector('.sampling-indicator');
+        if (existingIndicator) {
+            existingIndicator.remove();
+        }
+
+        if (isSampled) {
+            const indicator = document.createElement('div');
+            indicator.className = 'sampling-indicator';
+            indicator.style.cssText = `
+                background: #f8f9fa;
+                border: 1px solid #e9ecef;
+                border-radius: 4px;
+                padding: 8px 12px;
+                margin: 5px 0;
+                font-size: 12px;
+                color: #6c757d;
+                text-align: center;
+            `;
+            indicator.innerHTML = `
+                📊 Data sampled for performance: showing ${dataPointCount} points 
+                <span style="font-weight: 500;">(full resolution available for "Last Hour")</span>
+            `;
+            
+            const chartContainer = document.querySelector('.chart-container');
+            chartContainer.appendChild(indicator);
+        }
     }
 
     updateTable(readings) {
