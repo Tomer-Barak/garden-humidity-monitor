@@ -39,6 +39,7 @@
             <select id="sensorSelect">
                 <option value="">All Sensors</option>
             </select>
+            <button id="editSensorNamesBtn" title="Edit Sensor Names">✏️</button>
             <select id="timeRange">
                 <option value="1">Last Hour</option>
                 <option value="6">Last 6 Hours</option>
@@ -90,6 +91,27 @@
                     </thead>
                     <tbody></tbody>
                 </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sensor Names Edit Modal -->
+    <div id="sensorNamesModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Edit Sensor Names</h2>
+                <span class="close-modal">&times;</span>
+            </div>
+            <div class="modal-body">
+                <p>Customize how your sensors are displayed in the dashboard. These names are stored locally in your browser.</p>
+                <div id="sensorNamesList">
+                    <!-- Sensor name inputs will be populated here -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="saveSensorNames" class="btn-primary">Save Changes</button>
+                <button id="resetSensorNames" class="btn-secondary">Reset to Default</button>
+                <button id="cancelSensorNames" class="btn-secondary">Cancel</button>
             </div>
         </div>
     </div>

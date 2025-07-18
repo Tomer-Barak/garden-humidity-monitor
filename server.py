@@ -352,6 +352,22 @@ def get_humidity_stats():
         humidity_values = [r['humidity_percent'] for r in readings]
         raw_values = [r['raw_value'] for r in readings]
 
+        # Determine current humidity: aggregate across sensors when no specific sensor is requested
+        current_humidity = None
+        if humidity_values:
+            if sensor_id:
+                # Single sensor: most recent reading
+                current_humidity = humidity_values[0]
+            else:
+                # Aggregate latest reading per sensor
+                latest_per_sensor = {}
+                for r in readings:
+                    key = r['sensor_id'] or (f"pin_{r['sensor_pin']}" if r.get('sensor_pin') is not None else 'unknown')
+                    if key not in latest_per_sensor:
+                        latest_per_sensor[key] = r['humidity_percent']
+                if latest_per_sensor:
+                    current_humidity = sum(latest_per_sensor.values()) / len(latest_per_sensor)
+
         stats = {
             'status': 'success',
             'period_hours': hours,
@@ -360,7 +376,7 @@ def get_humidity_stats():
                 'min': min(humidity_values),
                 'max': max(humidity_values),
                 'avg': sum(humidity_values) / len(humidity_values),
-                'current': humidity_values[0] if humidity_values else None
+                'current': current_humidity
             },
             'raw_values': {
                 'min': min(raw_values),

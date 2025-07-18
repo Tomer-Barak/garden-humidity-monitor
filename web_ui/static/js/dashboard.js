@@ -2,6 +2,7 @@ class HumidityDashboard {
     constructor() {
         this.chart = null;
         this.refreshInterval = null;
+        this.sensorNames = this.loadCustomSensorNames();
         this.init();
     }
 
@@ -21,6 +22,164 @@ class HumidityDashboard {
         });
         document.getElementById('sensorSelect').addEventListener('change', () => this.loadData());
         document.getElementById('timeRange').addEventListener('change', () => this.loadData());
+        
+        // Sensor names modal event listeners
+        document.getElementById('editSensorNamesBtn').addEventListener('click', () => this.openSensorNamesModal());
+        document.getElementById('saveSensorNames').addEventListener('click', () => this.saveSensorNames());
+        document.getElementById('resetSensorNames').addEventListener('click', () => this.resetSensorNames());
+        document.getElementById('cancelSensorNames').addEventListener('click', () => this.closeSensorNamesModal());
+        document.querySelector('.close-modal').addEventListener('click', () => this.closeSensorNamesModal());
+        
+        // Close modal when clicking outside
+        document.getElementById('sensorNamesModal').addEventListener('click', (e) => {
+            if (e.target === document.getElementById('sensorNamesModal')) {
+                this.closeSensorNamesModal();
+            }
+        });
+    }
+
+    // Custom sensor names management
+    loadCustomSensorNames() {
+        try {
+            const stored = localStorage.getItem('customSensorNames');
+            return stored ? JSON.parse(stored) : {};
+        } catch (error) {
+            console.error('Error loading custom sensor names:', error);
+            return {};
+        }
+    }
+
+    saveCustomSensorNames(names) {
+        try {
+            localStorage.setItem('customSensorNames', JSON.stringify(names));
+            this.sensorNames = names;
+        } catch (error) {
+            console.error('Error saving custom sensor names:', error);
+        }
+    }
+
+    getDisplayName(sensorId, deviceId) {
+        const key = `${deviceId}:${sensorId}`;
+        return this.sensorNames[key] || sensorId || 'Unknown Sensor';
+    }
+
+    async openSensorNamesModal() {
+        // Load all available sensors
+        await this.loadAllSensorsForModal();
+        document.getElementById('sensorNamesModal').style.display = 'block';
+    }
+
+    closeSensorNamesModal() {
+        document.getElementById('sensorNamesModal').style.display = 'none';
+    }
+
+    async loadAllSensorsForModal() {
+        try {
+            const response = await fetch('/api/sensors');
+            const data = await response.json();
+            
+            if (data.status === 'success') {
+                this.populateSensorNamesForm(data.sensors);
+            }
+        } catch (error) {
+            console.error('Error loading sensors for modal:', error);
+        }
+    }
+
+    populateSensorNamesForm(sensors) {
+        const container = document.getElementById('sensorNamesList');
+        container.innerHTML = '';
+
+        if (sensors.length === 0) {
+            container.innerHTML = '<p style="text-align: center; color: #7f8c8d;">No sensors found. Sensors will appear here once they start sending data.</p>';
+            return;
+        }
+
+        sensors.forEach(sensor => {
+            const key = `${sensor.device_id}:${sensor.sensor_id}`;
+            const currentCustomName = this.sensorNames[key] || '';
+            
+            const sensorItem = document.createElement('div');
+            sensorItem.className = 'sensor-name-item';
+            
+            sensorItem.innerHTML = `
+                <div class="sensor-original-name">
+                    ${sensor.sensor_id}
+                    <div class="sensor-device-info">Device: ${sensor.device_id}</div>
+                </div>
+                <input 
+                    type="text" 
+                    class="sensor-custom-input" 
+                    data-sensor-key="${key}"
+                    value="${currentCustomName}"
+                    placeholder="Enter custom display name..."
+                >
+            `;
+            
+            container.appendChild(sensorItem);
+        });
+    }
+
+    saveSensorNames() {
+        const inputs = document.querySelectorAll('.sensor-custom-input');
+        const newNames = {};
+        
+        inputs.forEach(input => {
+            const key = input.dataset.sensorKey;
+            const value = input.value.trim();
+            if (value) {
+                newNames[key] = value;
+            }
+        });
+        
+        this.saveCustomSensorNames(newNames);
+        this.closeSensorNamesModal();
+        
+        // Refresh the display
+        this.loadSensors();
+        this.loadData();
+        
+        // Show confirmation
+        this.showSuccess('Sensor names updated successfully!');
+    }
+
+    resetSensorNames() {
+        if (confirm('Are you sure you want to reset all custom sensor names to their original values?')) {
+            this.saveCustomSensorNames({});
+            this.closeSensorNamesModal();
+            
+            // Refresh the display
+            this.loadSensors();
+            this.loadData();
+            
+            this.showSuccess('Sensor names reset to default!');
+        }
+    }
+
+    showSuccess(message) {
+        // Create or update success message
+        let successDiv = document.querySelector('.success');
+        if (!successDiv) {
+            successDiv = document.createElement('div');
+            successDiv.className = 'success';
+            successDiv.style.cssText = `
+                background: #27ae60;
+                color: white;
+                padding: 10px;
+                border-radius: 5px;
+                margin: 10px 0;
+                text-align: center;
+            `;
+            document.querySelector('.container').insertBefore(successDiv, document.querySelector('.controls'));
+        }
+        successDiv.textContent = message;
+        
+        // Auto-hide after 3 seconds
+        setTimeout(() => {
+            if (successDiv && successDiv.parentNode) {
+                successDiv.parentNode.removeChild(successDiv);
+            }
+        }, 3000);
     }
 
     async loadDevices() {
@@ -65,7 +224,7 @@ class HumidityDashboard {
                 sensors.forEach(sensor => {
                     const option = document.createElement('option');
                     option.value = sensor.sensor_id;
-                    const displayName = sensor.sensor_id || `Pin ${sensor.sensor_pin}`;
+                    const displayName = this.getDisplayName(sensor.sensor_id, sensor.device_id || deviceId);
                     option.textContent = `${displayName} (${sensor.reading_count} readings)`;
                     select.appendChild(option);
                 });
@@ -203,7 +362,12 @@ class HumidityDashboard {
             });
             const humidityData = sortedReadings.map(r => r.humidity_percent);
             
-            const sensorName = selectedSensor || sensorKeys[0] || 'Humidity';
+            // Use custom name if available
+            let sensorName = selectedSensor || sensorKeys[0] || 'Humidity';
+            if (sortedReadings.length > 0) {
+                const deviceId = sortedReadings[0].device_id;
+                sensorName = this.getDisplayName(sensorName, deviceId);
+            }
             
             datasets.push({
                 label: sensorName,
@@ -247,8 +411,15 @@ class HumidityDashboard {
                     return reading ? reading.humidity_percent : null;
                 });
                 
+                // Use custom name if available
+                let displayName = sensorKey;
+                if (sensorReadings.length > 0) {
+                    const deviceId = sensorReadings[0].device_id;
+                    displayName = this.getDisplayName(sensorKey, deviceId);
+                }
+                
                 datasets.push({
-                    label: sensorKey,
+                    label: displayName,
                     data: sensorData,
                     borderColor: color,
                     backgroundColor: `${color}20`,
@@ -326,7 +497,12 @@ class HumidityDashboard {
             const row = document.createElement('tr');
             // server_timestamp is already in Israel time with timezone info
             const date = new Date(reading.created_at);
-            const sensorInfo = reading.sensor_id ? reading.sensor_id : (reading.sensor_pin ? `Pin ${reading.sensor_pin}` : 'Unknown');
+            let sensorInfo = reading.sensor_id ? reading.sensor_id : (reading.sensor_pin ? `Pin ${reading.sensor_pin}` : 'Unknown');
+            
+            // Use custom name if available
+            if (reading.sensor_id) {
+                sensorInfo = this.getDisplayName(reading.sensor_id, reading.device_id);
+            }
             
             row.innerHTML = `
                 <td>${date.toLocaleString('en-GB', { 
