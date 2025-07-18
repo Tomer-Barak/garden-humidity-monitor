@@ -11,6 +11,7 @@ from flask import Flask, request, jsonify, render_template, send_from_directory
 from contextlib import contextmanager
 import os
 import pytz
+import requests
 
 # Configuration
 CONFIG = {
@@ -60,6 +61,30 @@ def get_israel_time():
 def get_israel_timestamp():
     """Get current timestamp string in Israel timezone"""
     return get_israel_time().isoformat()
+
+
+def send_message_to_bot(chat_id, sender, message):
+    """Send message to Telegram bot"""
+    url = "http://127.0.0.1:5000/webhook"  # The webhook URL
+    message_data = {
+        "message": {
+            "chat": {"id": chat_id},
+            "from": {"username": sender, "first_name": sender},
+            "text": 'Garden listener alert. Pass it to the family by using the RESPOND action:\n'+message
+        }
+    }
+    # Send the message to the bot
+    try:
+        response = requests.post(url, json=message_data, timeout=10)
+        if response.status_code == 200:
+            logger.info("Telegram notification sent successfully!")
+            return True
+        else:
+            logger.error(f"Failed to send Telegram notification. Status code: {response.status_code}, Response: {response.text}")
+            return False
+    except Exception as e:
+        logger.error(f"Error sending Telegram notification: {e}")
+        return False
 
 
 class HumidityDatabase:
@@ -169,6 +194,37 @@ class HumidityDatabase:
                              )
                              ''')
             
+            # Create sensor configuration table for thresholds and alert states
+            conn.execute('''
+                         CREATE TABLE IF NOT EXISTS sensor_config
+                         (
+                             device_id TEXT NOT NULL,
+                             sensor_id TEXT NOT NULL,
+                             display_name TEXT,
+                             humidity_threshold REAL,
+                             alerts_enabled INTEGER DEFAULT 1,
+                             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                             PRIMARY KEY (device_id, sensor_id)
+                         )
+                         ''')
+            
+            # Create global settings table
+            conn.execute('''
+                         CREATE TABLE IF NOT EXISTS global_settings
+                         (
+                             key TEXT PRIMARY KEY,
+                             value TEXT,
+                             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                         )
+                         ''')
+            
+            # Insert default global threshold if not exists
+            conn.execute('''
+                         INSERT OR IGNORE INTO global_settings (key, value)
+                         VALUES ('global_humidity_threshold', '30.0')
+                         ''')
+            
             # Create indexes
             conn.execute('''
                          CREATE INDEX IF NOT EXISTS idx_device_timestamp
@@ -204,6 +260,128 @@ class HumidityDatabase:
                          (device_id, sensor_id, sensor_pin, raw_value, humidity_percent, esp32_timestamp, server_timestamp)
                          VALUES (?, ?, ?, ?, ?, ?, ?)
                          ''', (device_id, sensor_id, sensor_pin, raw_value, humidity_percent, esp32_timestamp, server_timestamp))
+            conn.commit()
+            
+        # Check for threshold alerts after inserting the reading
+        if sensor_id:
+            self.check_humidity_threshold(device_id, sensor_id, humidity_percent)
+
+    def check_humidity_threshold(self, device_id, sensor_id, humidity_percent):
+        """Check if humidity is below threshold and send alert if needed"""
+        try:
+            with self.get_connection() as conn:
+                # Get sensor config
+                cursor = conn.execute('''
+                    SELECT humidity_threshold, alerts_enabled, display_name
+                    FROM sensor_config 
+                    WHERE device_id = ? AND sensor_id = ?
+                ''', (device_id, sensor_id))
+                
+                sensor_config = cursor.fetchone()
+                
+                # If no sensor-specific threshold, use global threshold
+                threshold = None
+                alerts_enabled = True
+                display_name = sensor_id
+                
+                if sensor_config:
+                    threshold = sensor_config['humidity_threshold']
+                    alerts_enabled = bool(sensor_config['alerts_enabled'])
+                    display_name = sensor_config['display_name'] or sensor_id
+                
+                # Get global threshold if no sensor-specific threshold
+                if threshold is None:
+                    cursor = conn.execute('''
+                        SELECT value FROM global_settings WHERE key = 'global_humidity_threshold'
+                    ''')
+                    global_threshold = cursor.fetchone()
+                    if global_threshold:
+                        threshold = float(global_threshold['value'])
+                
+                # Check if alert should be sent
+                if threshold and alerts_enabled and humidity_percent < threshold:
+                    # Send telegram notification
+                    message = f"The {display_name} humidity is below {threshold}% (current: {humidity_percent:.1f}%)"
+                    success = send_message_to_bot(-1002340388184, "Listener: garden", message)
+                    
+                    if success:
+                        # Disable alerts for this sensor until manually re-enabled
+                        self.set_sensor_alerts_enabled(device_id, sensor_id, False)
+                        logger.info(f"Alert sent for {device_id}:{sensor_id}, alerts disabled")
+                
+        except Exception as e:
+            logger.error(f"Error checking humidity threshold: {e}")
+
+    def get_sensor_config(self, device_id, sensor_id):
+        """Get configuration for a specific sensor"""
+        with self.get_connection() as conn:
+            cursor = conn.execute('''
+                SELECT * FROM sensor_config 
+                WHERE device_id = ? AND sensor_id = ?
+            ''', (device_id, sensor_id))
+            return dict(cursor.fetchone()) if cursor.fetchone() else None
+
+    def update_sensor_config(self, device_id, sensor_id, display_name=None, humidity_threshold=None, alerts_enabled=None):
+        """Update sensor configuration"""
+        with self.get_connection() as conn:
+            # Insert or update sensor config
+            if alerts_enabled is None:
+                # Preserve existing alerts_enabled value
+                conn.execute('''
+                    INSERT OR REPLACE INTO sensor_config 
+                    (device_id, sensor_id, display_name, humidity_threshold, alerts_enabled, updated_at)
+                    VALUES (?, ?, ?, ?, 
+                            COALESCE((SELECT alerts_enabled FROM sensor_config WHERE device_id = ? AND sensor_id = ?), 1),
+                            datetime('now'))
+                ''', (device_id, sensor_id, display_name, humidity_threshold, device_id, sensor_id))
+            else:
+                # Use provided alerts_enabled value
+                conn.execute('''
+                    INSERT OR REPLACE INTO sensor_config 
+                    (device_id, sensor_id, display_name, humidity_threshold, alerts_enabled, updated_at)
+                    VALUES (?, ?, ?, ?, ?, datetime('now'))
+                ''', (device_id, sensor_id, display_name, humidity_threshold, int(alerts_enabled)))
+            conn.commit()
+
+    def set_sensor_alerts_enabled(self, device_id, sensor_id, enabled):
+        """Enable or disable alerts for a specific sensor"""
+        with self.get_connection() as conn:
+            conn.execute('''
+                INSERT OR REPLACE INTO sensor_config 
+                (device_id, sensor_id, display_name, humidity_threshold, alerts_enabled, updated_at)
+                VALUES (?, ?, 
+                        COALESCE((SELECT display_name FROM sensor_config WHERE device_id = ? AND sensor_id = ?), ?),
+                        COALESCE((SELECT humidity_threshold FROM sensor_config WHERE device_id = ? AND sensor_id = ?), NULL),
+                        ?, datetime('now'))
+            ''', (device_id, sensor_id, device_id, sensor_id, sensor_id, device_id, sensor_id, int(enabled)))
+            conn.commit()
+
+    def get_all_sensor_configs(self):
+        """Get all sensor configurations"""
+        with self.get_connection() as conn:
+            cursor = conn.execute('''
+                SELECT device_id, sensor_id, display_name, humidity_threshold, alerts_enabled
+                FROM sensor_config
+                ORDER BY device_id, sensor_id
+            ''')
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_global_threshold(self):
+        """Get global humidity threshold"""
+        with self.get_connection() as conn:
+            cursor = conn.execute('''
+                SELECT value FROM global_settings WHERE key = 'global_humidity_threshold'
+            ''')
+            result = cursor.fetchone()
+            return float(result['value']) if result else 30.0
+
+    def set_global_threshold(self, threshold):
+        """Set global humidity threshold"""
+        with self.get_connection() as conn:
+            conn.execute('''
+                INSERT OR REPLACE INTO global_settings (key, value, updated_at)
+                VALUES ('global_humidity_threshold', ?, datetime('now'))
+            ''', (str(threshold),))
             conn.commit()
 
     def get_latest_readings(self, device_id=None, sensor_id=None, limit=100):
@@ -247,36 +425,65 @@ class HumidityDatabase:
             # No need to sample, return all data
             return self.get_readings_since(hours, device_id, sensor_id)
         
-        # Calculate sampling interval in seconds
-        sampling_interval_seconds = (hours * 3600) // sample_size
+        # First, get the number of unique sensors to understand data distribution
+        sensor_count_query = '''
+            SELECT COUNT(DISTINCT sensor_id) as sensor_count
+            FROM humidity_readings 
+            WHERE (? IS NULL OR device_id = ?)
+            AND (? IS NULL OR sensor_id = ?)
+            AND created_at > datetime('now', '-{} hours')
+        '''.format(hours)
         
-        # Use a query that samples every N seconds using row_number and modulo
+        with self.get_connection() as conn:
+            cursor = conn.execute(sensor_count_query, (device_id, device_id, sensor_id, sensor_id))
+            sensor_count = cursor.fetchone()[0] or 1
+        
+        # Calculate time buckets to ensure we cover the full time range
+        # We want to distribute sample_size points across the time range, with each sensor
+        # getting representation in each time bucket
+        time_buckets = max(sample_size // max(sensor_count, 1), 10)  # At least 10 time buckets
+        sampling_interval_seconds = max(1, (hours * 3600) // time_buckets)
+        
+        # Use time-based sampling to ensure all sensors are represented fairly across the full time range
         query = '''
-            WITH ordered_readings AS (
-                SELECT *, 
-                       ROW_NUMBER() OVER (ORDER BY created_at ASC) as rn,
-                       COUNT(*) OVER () as total_count
+            WITH time_buckets AS (
+                SELECT 
+                    id, device_id, sensor_id, sensor_pin, raw_value, humidity_percent,
+                    esp32_timestamp, server_timestamp, server_timestamp as created_at,
+                    CAST((julianday('now') - julianday(created_at)) * 24 * 3600 / ? AS INTEGER) as time_bucket,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY 
+                            CAST((julianday('now') - julianday(created_at)) * 24 * 3600 / ? AS INTEGER),
+                            device_id, 
+                            sensor_id 
+                        ORDER BY created_at DESC
+                    ) as rn_in_bucket
                 FROM humidity_readings 
                 WHERE (? IS NULL OR device_id = ?)
                 AND (? IS NULL OR sensor_id = ?)
                 AND created_at > datetime('now', '-{} hours')
             )
-            SELECT id, device_id, sensor_id, sensor_pin, raw_value, humidity_percent, 
-                   esp32_timestamp, server_timestamp, server_timestamp as created_at
-            FROM ordered_readings 
-            WHERE (rn - 1) % CAST(total_count / ? AS INTEGER) = 0
-            OR rn = total_count  -- Always include the last reading
+            SELECT id, device_id, sensor_id, sensor_pin, raw_value, humidity_percent,
+                   esp32_timestamp, server_timestamp, created_at
+            FROM time_buckets 
+            WHERE rn_in_bucket = 1  -- Take the most recent reading from each sensor in each time bucket
             ORDER BY created_at DESC
+            LIMIT ?
         '''.format(hours)
 
         with self.get_connection() as conn:
-            cursor = conn.execute(query, (device_id, device_id, sensor_id, sensor_id, sample_size))
+            cursor = conn.execute(query, (
+                sampling_interval_seconds, sampling_interval_seconds, 
+                device_id, device_id, sensor_id, sensor_id, 
+                sample_size * 2  # Allow more readings to ensure we get good coverage
+            ))
             readings = [dict(row) for row in cursor.fetchall()]
             
-            # If we still have too many readings (edge case), do additional sampling
-            if len(readings) > sample_size * 1.2:  # Allow 20% overage
-                step = max(1, len(readings) // sample_size)
-                readings = readings[::step]
+            # If we have too many readings, do final sampling while preserving time distribution
+            if len(readings) > sample_size:
+                # Keep readings distributed across time - take every nth reading
+                step = len(readings) // sample_size
+                readings = readings[::max(1, step)][:sample_size]
                 
             return readings
 
@@ -546,6 +753,96 @@ def get_device_sensors(device_id):
         })
     except Exception as e:
         logger.error(f"Error getting sensors for device {device_id}: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+
+@app.route('/api/sensor-config', methods=['GET'])
+def get_sensor_configs():
+    """Get all sensor configurations with thresholds and alert states"""
+    try:
+        configs = db.get_all_sensor_configs()
+        global_threshold = db.get_global_threshold()
+        
+        return jsonify({
+            'status': 'success',
+            'global_threshold': global_threshold,
+            'sensor_configs': configs
+        })
+    except Exception as e:
+        logger.error(f"Error getting sensor configs: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+
+@app.route('/api/sensor-config', methods=['POST'])
+def update_sensor_configs():
+    """Update sensor configurations (names, thresholds)"""
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'No JSON data provided'}), 400
+        
+        # Update global threshold if provided
+        if 'global_threshold' in data:
+            try:
+                threshold = float(data['global_threshold'])
+                if threshold > 0:
+                    db.set_global_threshold(threshold)
+                else:
+                    return jsonify({'error': 'Global threshold must be positive'}), 400
+            except ValueError:
+                return jsonify({'error': 'Invalid global threshold value'}), 400
+        
+        # Update individual sensor configs if provided
+        if 'sensor_configs' in data:
+            for config in data['sensor_configs']:
+                device_id = config.get('device_id')
+                sensor_id = config.get('sensor_id')
+                display_name = config.get('display_name')
+                humidity_threshold = config.get('humidity_threshold')
+                alerts_enabled = config.get('alerts_enabled')
+                
+                if not device_id or not sensor_id:
+                    continue
+                
+                # Validate threshold if provided
+                if humidity_threshold is not None:
+                    try:
+                        humidity_threshold = float(humidity_threshold)
+                        if humidity_threshold < 0:  # Allow 0 as a valid threshold
+                            humidity_threshold = None
+                    except ValueError:
+                        humidity_threshold = None
+                
+                db.update_sensor_config(device_id, sensor_id, display_name, humidity_threshold, alerts_enabled)
+        
+        return jsonify({'status': 'success', 'message': 'Configuration updated'})
+        
+    except Exception as e:
+        logger.error(f"Error updating sensor configs: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+
+@app.route('/api/sensor-alerts/<device_id>/<sensor_id>', methods=['POST'])
+def toggle_sensor_alerts(device_id, sensor_id):
+    """Toggle alerts for a specific sensor"""
+    try:
+        data = request.get_json()
+        enabled = data.get('enabled', True) if data else True
+        
+        db.set_sensor_alerts_enabled(device_id, sensor_id, enabled)
+        
+        action = "enabled" if enabled else "disabled"
+        logger.info(f"Alerts {action} for sensor {device_id}:{sensor_id}")
+        
+        return jsonify({
+            'status': 'success', 
+            'message': f'Alerts {action} for sensor {sensor_id}',
+            'alerts_enabled': enabled
+        })
+        
+    except Exception as e:
+        logger.error(f"Error toggling alerts for {device_id}:{sensor_id}: {e}")
         return jsonify({'error': 'Internal server error'}), 500
 
 

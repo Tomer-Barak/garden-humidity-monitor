@@ -2,12 +2,14 @@ class HumidityDashboard {
     constructor() {
         this.chart = null;
         this.refreshInterval = null;
-        this.sensorNames = this.loadCustomSensorNames();
+        this.sensorConfigs = {};
+        this.globalThreshold = 30.0;
         this.init();
     }
 
     async init() {
         this.setupEventListeners();
+        await this.loadSensorConfigs();
         await this.loadDevices();
         await this.loadSensors();
         await this.loadData();
@@ -20,7 +22,10 @@ class HumidityDashboard {
     }
 
     setupEventListeners() {
-        document.getElementById('refreshBtn').addEventListener('click', () => this.loadData());
+        document.getElementById('refreshBtn').addEventListener('click', () => {
+            this.loadSensorConfigs(); // Refresh sensor configs when manually refreshing
+            this.loadData();
+        });
         document.getElementById('deviceSelect').addEventListener('change', () => {
             this.loadSensors();
             this.loadData();
@@ -43,32 +48,44 @@ class HumidityDashboard {
         });
     }
 
-    // Custom sensor names management
-    loadCustomSensorNames() {
-        try {
-            const stored = localStorage.getItem('customSensorNames');
-            return stored ? JSON.parse(stored) : {};
-        } catch (error) {
-            console.error('Error loading custom sensor names:', error);
-            return {};
-        }
-    }
-
-    saveCustomSensorNames(names) {
-        try {
-            localStorage.setItem('customSensorNames', JSON.stringify(names));
-            this.sensorNames = names;
-        } catch (error) {
-            console.error('Error saving custom sensor names:', error);
-        }
-    }
-
+    // Custom sensor names management - now server-side only
     getDisplayName(sensorId, deviceId) {
         const key = `${deviceId}:${sensorId}`;
-        return this.sensorNames[key] || sensorId || 'Unknown Sensor';
+        // Use server-side config for display name
+        const serverConfig = this.sensorConfigs[key];
+        if (serverConfig && serverConfig.display_name) {
+            return serverConfig.display_name;
+        }
+        return sensorId || 'Unknown Sensor';
+    }
+
+    async loadSensorConfigs() {
+        try {
+            const response = await fetch('/api/sensor-config');
+            const data = await response.json();
+            
+            if (data.status === 'success') {
+                this.globalThreshold = data.global_threshold;
+                this.sensorConfigs = {};
+                
+                console.log('Raw sensor configs from server:', data.sensor_configs); // Debug log
+                
+                // Convert array to key-value pairs for easier lookup
+                data.sensor_configs.forEach(config => {
+                    const key = `${config.device_id}:${config.sensor_id}`;
+                    this.sensorConfigs[key] = config;
+                });
+                
+                console.log('Processed sensor configs:', this.sensorConfigs); // Debug log
+            }
+        } catch (error) {
+            console.error('Error loading sensor configs:', error);
+        }
     }
 
     async openSensorNamesModal() {
+        // Reload sensor configs to get latest data
+        await this.loadSensorConfigs();
         // Load all available sensors
         await this.loadAllSensorsForModal();
         document.getElementById('sensorNamesModal').style.display = 'block';
@@ -100,64 +117,265 @@ class HumidityDashboard {
             return;
         }
 
+        // Add global threshold section
+        const globalSection = document.createElement('div');
+        globalSection.className = 'global-threshold-section';
+        globalSection.innerHTML = `
+            <h4 style="margin: 0 0 15px 0; color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px;">
+                Global Settings
+            </h4>
+            <div class="global-threshold-item">
+                <label>Global Humidity Threshold (%):</label>
+                <input 
+                    type="number" 
+                    id="globalThresholdInput" 
+                    value="${this.globalThreshold}"
+                    min="0" 
+                    max="100" 
+                    step="0.1"
+                    placeholder="30.0"
+                >
+                <small style="color: #7f8c8d;">This threshold applies to sensors without individual thresholds</small>
+            </div>
+        `;
+        container.appendChild(globalSection);
+
+        // Add individual sensors section
+        const sensorsSection = document.createElement('div');
+        sensorsSection.innerHTML = `
+            <h4 style="margin: 20px 0 15px 0; color: #2c3e50; border-bottom: 2px solid #e74c3c; padding-bottom: 5px;">
+                Individual Sensor Settings
+            </h4>
+        `;
+        container.appendChild(sensorsSection);
+
         sensors.forEach(sensor => {
             const key = `${sensor.device_id}:${sensor.sensor_id}`;
-            const currentCustomName = this.sensorNames[key] || '';
+            const currentConfig = this.sensorConfigs[key] || {};
+            const currentCustomName = currentConfig.display_name || '';
+            const currentThreshold = currentConfig.humidity_threshold !== null && currentConfig.humidity_threshold !== undefined ? currentConfig.humidity_threshold : '';
+            // Convert SQLite integer (0/1) to boolean properly
+            const alertsEnabled = currentConfig.alerts_enabled === 1 || currentConfig.alerts_enabled === true;
+            
+            // Debug log to see alert state
+            console.log(`Sensor ${sensor.sensor_id}: alerts_enabled in config = ${currentConfig.alerts_enabled}, computed alertsEnabled = ${alertsEnabled}`);
             
             const sensorItem = document.createElement('div');
-            sensorItem.className = 'sensor-name-item';
+            sensorItem.className = 'sensor-config-item';
             
             sensorItem.innerHTML = `
                 <div class="sensor-original-name">
                     ${sensor.sensor_id}
                     <div class="sensor-device-info">Device: ${sensor.device_id}</div>
                 </div>
-                <input 
-                    type="text" 
-                    class="sensor-custom-input" 
-                    data-sensor-key="${key}"
-                    value="${currentCustomName}"
-                    placeholder="Enter custom display name..."
-                >
+                <div class="sensor-config-inputs">
+                    <div class="config-row">
+                        <label>Display Name:</label>
+                        <input 
+                            type="text" 
+                            class="sensor-custom-input" 
+                            data-sensor-key="${key}"
+                            value="${currentCustomName}"
+                            placeholder="Enter custom display name..."
+                        >
+                    </div>
+                    <div class="config-row">
+                        <label>Humidity Threshold (%):</label>
+                        <input 
+                            type="number" 
+                            class="sensor-threshold-input" 
+                            data-sensor-key="${key}"
+                            value="${currentThreshold}"
+                            min="0" 
+                            max="100" 
+                            step="0.1"
+                            placeholder="Use global (${this.globalThreshold}%)"
+                        >
+                    </div>
+                    <div class="config-row">
+                        <label class="alert-toggle">
+                            <input 
+                                type="checkbox" 
+                                class="sensor-alerts-toggle" 
+                                data-sensor-key="${key}"
+                                ${alertsEnabled ? 'checked' : ''}
+                            >
+                            <span class="checkmark"></span>
+                            Alerts Enabled
+                        </label>
+                    </div>
+                </div>
             `;
             
             container.appendChild(sensorItem);
         });
     }
 
-    saveSensorNames() {
-        const inputs = document.querySelectorAll('.sensor-custom-input');
-        const newNames = {};
+    async saveSensorNames() {
+        const nameInputs = document.querySelectorAll('.sensor-custom-input');
+        const thresholdInputs = document.querySelectorAll('.sensor-threshold-input');
+        const alertToggles = document.querySelectorAll('.sensor-alerts-toggle');
+        const globalThresholdInput = document.getElementById('globalThresholdInput');
         
-        inputs.forEach(input => {
+        // Prepare data for server
+        const sensorConfigs = [];
+        
+        nameInputs.forEach(input => {
             const key = input.dataset.sensorKey;
+            // Split only on the last colon to handle device IDs with colons (MAC addresses)
+            const lastColonIndex = key.lastIndexOf(':');
+            const deviceId = key.substring(0, lastColonIndex);
+            const sensorId = key.substring(lastColonIndex + 1);
             const value = input.value.trim();
-            if (value) {
-                newNames[key] = value;
+            
+            // Find corresponding threshold and alert settings
+            const thresholdInput = document.querySelector(`.sensor-threshold-input[data-sensor-key="${key}"]`);
+            const alertToggle = document.querySelector(`.sensor-alerts-toggle[data-sensor-key="${key}"]`);
+            
+            let threshold = null;
+            if (thresholdInput && thresholdInput.value.trim() !== '') {
+                const thresholdValue = parseFloat(thresholdInput.value.trim());
+                if (!isNaN(thresholdValue) && thresholdValue >= 0) {
+                    threshold = thresholdValue;
+                }
             }
+            
+            const alertsEnabled = alertToggle ? alertToggle.checked : true;
+            
+            sensorConfigs.push({
+                device_id: deviceId,
+                sensor_id: sensorId,
+                display_name: value || null,
+                humidity_threshold: threshold,
+                alerts_enabled: alertsEnabled
+            });
         });
         
-        this.saveCustomSensorNames(newNames);
-        this.closeSensorNamesModal();
+        // Prepare request data
+        const requestData = {
+            sensor_configs: sensorConfigs
+        };
         
-        // Refresh the display
-        this.loadSensors();
-        this.loadData();
+        // Add global threshold if changed
+        if (globalThresholdInput && globalThresholdInput.value) {
+            const globalThreshold = parseFloat(globalThresholdInput.value);
+            if (globalThreshold > 0) {
+                requestData.global_threshold = globalThreshold;
+            }
+        }
         
-        // Show confirmation
-        this.showSuccess('Sensor names updated successfully!');
+        try {
+            const response = await fetch('/api/sensor-config', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(requestData)
+            });
+            
+            const data = await response.json();
+            
+            if (data.status === 'success') {
+                // Reload configs from server
+                await this.loadSensorConfigs();
+                
+                this.closeSensorNamesModal();
+                
+                // Refresh the display
+                await this.loadSensors();
+                await this.loadData();
+                
+                this.showSuccess('Sensor configuration updated successfully!');
+            } else {
+                this.showError('Failed to update sensor configuration: ' + (data.error || 'Unknown error'));
+            }
+        } catch (error) {
+            console.error('Error saving sensor configuration:', error);
+            this.showError('Failed to save sensor configuration');
+        }
+    }
+
+    async toggleSensorAlerts(deviceId, sensorId, enabled) {
+        try {
+            const response = await fetch(`/api/sensor-alerts/${deviceId}/${sensorId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ enabled })
+            });
+            
+            const data = await response.json();
+            
+            if (data.status === 'success') {
+                // Update local config
+                const key = `${deviceId}:${sensorId}`;
+                if (!this.sensorConfigs[key]) {
+                    this.sensorConfigs[key] = {};
+                }
+                this.sensorConfigs[key].alerts_enabled = enabled;
+                
+                const action = enabled ? 'enabled' : 'disabled';
+                this.showSuccess(`Alerts ${action} for ${this.getDisplayName(sensorId, deviceId)}`);
+            } else {
+                this.showError('Failed to update alert settings: ' + (data.error || 'Unknown error'));
+            }
+        } catch (error) {
+            console.error('Error toggling sensor alerts:', error);
+            this.showError('Failed to update alert settings');
+        }
     }
 
     resetSensorNames() {
-        if (confirm('Are you sure you want to reset all custom sensor names to their original values?')) {
-            this.saveCustomSensorNames({});
-            this.closeSensorNamesModal();
+        if (confirm('Are you sure you want to reset all custom sensor names and thresholds to their default values?')) {
+            // Reset server-side config by clearing all display names and thresholds
+            // We need to send configs for all existing sensors with null values
+            const resetConfigs = [];
             
-            // Refresh the display
-            this.loadSensors();
-            this.loadData();
+            // Get all existing sensor configs and reset them
+            Object.keys(this.sensorConfigs).forEach(key => {
+                const lastColonIndex = key.lastIndexOf(':');
+                const deviceId = key.substring(0, lastColonIndex);
+                const sensorId = key.substring(lastColonIndex + 1);
+                
+                resetConfigs.push({
+                    device_id: deviceId,
+                    sensor_id: sensorId,
+                    display_name: null,
+                    humidity_threshold: null,
+                    alerts_enabled: true
+                });
+            });
             
-            this.showSuccess('Sensor names reset to default!');
+            const resetData = {
+                global_threshold: 30.0,
+                sensor_configs: resetConfigs
+            };
+            
+            fetch('/api/sensor-config', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(resetData)
+            }).then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    this.loadSensorConfigs();
+                    this.closeSensorNamesModal();
+                    
+                    // Refresh the display
+                    this.loadSensors();
+                    this.loadData();
+                    
+                    this.showSuccess('Sensor configuration reset to default!');
+                } else {
+                    this.showError('Failed to reset configuration');
+                }
+            }).catch(error => {
+                console.error('Error resetting configuration:', error);
+                this.showError('Failed to reset configuration');
+            });
         }
     }
 
@@ -302,12 +520,12 @@ class HumidityDashboard {
         params.append('hours', hours);
         
         // Add sampling for longer time periods to improve performance
-        // Target: ~360 data points (same as 1 hour of 10-second intervals)
-        const targetDataPoints = 360;
+        // Target: ~720 data points (double the original 360 for better resolution)
+        const targetDataPoints = 720;
         
-        // Only sample if we expect more than 400 data points (small buffer)
+        // Only sample if we expect more than 800 data points (small buffer)
         const expectedDataPoints = hours * 360; // 360 readings per hour (10-second intervals)
-        if (expectedDataPoints > 400) {
+        if (expectedDataPoints > 800) {
             params.append('sample_size', targetDataPoints);
         }
 
@@ -520,7 +738,7 @@ class HumidityDashboard {
 
         if (!readings || readings.length === 0) {
             const row = document.createElement('tr');
-            row.innerHTML = '<td colspan="5" style="text-align: center; color: #7f8c8d;">No recent readings available</td>';
+            row.innerHTML = '<td colspan="6" style="text-align: center; color: #7f8c8d;">No recent readings available</td>';
             tbody.appendChild(row);
             return;
         }
@@ -536,6 +754,33 @@ class HumidityDashboard {
                 sensorInfo = this.getDisplayName(reading.sensor_id, reading.device_id);
             }
             
+            // Get alert status for this sensor
+            const sensorKey = `${reading.device_id}:${reading.sensor_id}`;
+            const sensorConfig = this.sensorConfigs[sensorKey] || {};
+            // Convert SQLite integer (0/1) to boolean properly
+            const alertsEnabled = sensorConfig.alerts_enabled === 1 || sensorConfig.alerts_enabled === true;
+            const threshold = sensorConfig.humidity_threshold || this.globalThreshold;
+            const isBelowThreshold = reading.humidity_percent < threshold;
+            
+            // Alert status column
+            let alertStatusHtml = '';
+            if (reading.sensor_id) {
+                const alertClass = alertsEnabled ? 'alert-enabled' : 'alert-disabled';
+                const alertText = alertsEnabled ? '🔔' : '🔕';
+                const thresholdInfo = `Threshold: ${threshold}%`;
+                const statusClass = isBelowThreshold ? 'below-threshold' : '';
+                
+                alertStatusHtml = `
+                    <span class="alert-status ${alertClass} ${statusClass}" 
+                          title="${thresholdInfo}" 
+                          onclick="dashboard.toggleSensorAlerts('${reading.device_id}', '${reading.sensor_id}', ${!alertsEnabled})">
+                        ${alertText}
+                    </span>
+                `;
+            } else {
+                alertStatusHtml = '<span style="color: #bdc3c7;">—</span>';
+            }
+            
             row.innerHTML = `
                 <td>${date.toLocaleString('en-GB', { 
                     year: 'numeric',
@@ -549,6 +794,7 @@ class HumidityDashboard {
                 <td><strong>${reading.humidity_percent.toFixed(1)}%</strong></td>
                 <td>${reading.raw_value}</td>
                 <td><span class="device-badge">${reading.device_id}</span></td>
+                <td>${alertStatusHtml}</td>
             `;
             tbody.appendChild(row);
         });
@@ -605,6 +851,7 @@ class HumidityDashboard {
     startAutoRefresh() {
         // Refresh every 30 seconds
         this.refreshInterval = setInterval(() => {
+            this.loadSensorConfigs(); // Keep sensor configs in sync
             this.loadData();
         }, 30000);
     }
@@ -618,8 +865,9 @@ class HumidityDashboard {
 }
 
 // Initialize dashboard when page loads
+let dashboard;
 document.addEventListener('DOMContentLoaded', () => {
-    new HumidityDashboard();
+    dashboard = new HumidityDashboard();
 });
 
 // Add some additional CSS for device and sensor badges
@@ -640,6 +888,152 @@ style.textContent = `
         font-size: 12px;
         color: #7b1fa2;
         font-weight: 500;
+    }
+    
+    /* Sensor configuration modal styles */
+    .sensor-config-item {
+        border: 1px solid #e0e0e0;
+        border-radius: 8px;
+        padding: 15px;
+        margin-bottom: 15px;
+        background: #fafafa;
+    }
+    
+    .sensor-config-inputs {
+        margin-top: 10px;
+    }
+    
+    .config-row {
+        display: flex;
+        align-items: center;
+        margin-bottom: 10px;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+    
+    .config-row label {
+        min-width: 140px;
+        font-weight: 500;
+        color: #555;
+        flex-shrink: 0;
+    }
+    
+    .config-row input[type="text"], 
+    .config-row input[type="number"] {
+        flex: 1;
+        min-width: 0;
+        max-width: 200px;
+        padding: 6px 10px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        box-sizing: border-box;
+    }
+    
+    .global-threshold-section {
+        background: #f8f9fa;
+        border: 2px solid #3498db;
+        border-radius: 8px;
+        padding: 15px;
+        margin-bottom: 20px;
+    }
+    
+    .global-threshold-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+    
+    .global-threshold-item label {
+        font-weight: 500;
+        color: #2c3e50;
+        min-width: 200px;
+        flex-shrink: 0;
+    }
+    
+    .global-threshold-item input {
+        padding: 8px 12px;
+        border: 1px solid #bdc3c7;
+        border-radius: 4px;
+        width: 100px;
+        box-sizing: border-box;
+    }
+    
+    .global-threshold-item small {
+        flex-basis: 100%;
+        margin-top: 5px;
+    }
+    
+    /* Alert toggle styles */
+    .alert-toggle {
+        display: flex;
+        align-items: center;
+        cursor: pointer;
+        user-select: none;
+    }
+    
+    .alert-toggle input[type="checkbox"] {
+        display: none;
+    }
+    
+    .checkmark {
+        width: 20px;
+        height: 20px;
+        background: #fff;
+        border: 2px solid #bdc3c7;
+        border-radius: 4px;
+        margin-right: 8px;
+        position: relative;
+        transition: all 0.2s;
+    }
+    
+    .alert-toggle input:checked + .checkmark {
+        background: #27ae60;
+        border-color: #27ae60;
+    }
+    
+    .alert-toggle input:checked + .checkmark::after {
+        content: '✓';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        color: white;
+        font-weight: bold;
+        font-size: 12px;
+    }
+    
+    /* Alert status indicators in table */
+    .alert-status {
+        cursor: pointer;
+        font-size: 16px;
+        padding: 4px;
+        border-radius: 50%;
+        transition: all 0.2s;
+        display: inline-block;
+        width: 24px;
+        height: 24px;
+        text-align: center;
+        line-height: 16px;
+    }
+    
+    .alert-status:hover {
+        background: rgba(52, 152, 219, 0.1);
+        transform: scale(1.1);
+    }
+    
+    .alert-enabled {
+        opacity: 1;
+    }
+    
+    .alert-disabled {
+        opacity: 0.4;
+        filter: grayscale(100%);
+    }
+    
+    .alert-status.below-threshold {
+        background: rgba(231, 76, 60, 0.2);
+        border: 1px solid #e74c3c;
     }
 `;
 document.head.appendChild(style);

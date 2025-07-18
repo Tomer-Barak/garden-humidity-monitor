@@ -117,6 +117,9 @@ button:hover {
     border-radius: 10px;
     max-width: 600px;
     width: 90%;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
     animation: slideIn 0.3s;
 }
@@ -138,6 +141,7 @@ button:hover {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    flex-shrink: 0;
 }
 
 .modal-header h2 {
@@ -159,6 +163,28 @@ button:hover {
 
 .modal-body {
     padding: 20px;
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+}
+
+/* Custom scrollbar for modal */
+.modal-body::-webkit-scrollbar {
+    width: 8px;
+}
+
+.modal-body::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+}
+
+.modal-body::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 4px;
+}
+
+.modal-body::-webkit-scrollbar-thumb:hover {
+    background: #a1a1a1;
 }
 
 .modal-body p {
@@ -176,6 +202,7 @@ button:hover {
     background: #f8f9fa;
     border-radius: 8px;
     border: 1px solid #e9ecef;
+    min-width: 0;
 }
 
 .sensor-original-name {
@@ -187,10 +214,12 @@ button:hover {
 
 .sensor-custom-input {
     flex: 1;
+    min-width: 0;
     padding: 8px 12px;
     border: 1px solid #ced4da;
     border-radius: 4px;
     font-size: 14px;
+    box-sizing: border-box;
 }
 
 .sensor-custom-input:focus {
@@ -211,6 +240,7 @@ button:hover {
     display: flex;
     gap: 10px;
     justify-content: flex-end;
+    flex-shrink: 0;
 }
 
 .btn-primary {
@@ -376,6 +406,7 @@ tr:hover {
     .modal-content {
         margin: 10% auto;
         width: 95%;
+        max-height: 85vh;
     }
     
     .sensor-name-item {
@@ -395,5 +426,35 @@ tr:hover {
     .modal-footer button {
         width: 100%;
         margin-bottom: 5px;
+    }
+    
+    /* Sensor config responsive styles */
+    .config-row {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 5px;
+    }
+    
+    .config-row label {
+        min-width: auto;
+    }
+    
+    .config-row input[type="text"], 
+    .config-row input[type="number"] {
+        max-width: none;
+        width: 100%;
+    }
+    
+    .global-threshold-item {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .global-threshold-item label {
+        min-width: auto;
+    }
+    
+    .global-threshold-item input {
+        width: 100%;
     }
 }

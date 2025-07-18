@@ -39,7 +39,7 @@
             <select id="sensorSelect">
                 <option value="">All Sensors</option>
             </select>
-            <button id="editSensorNamesBtn" title="Edit Sensor Names">✏️</button>
+            <button id="editSensorNamesBtn" title="Sensor Configuration">⚙️</button>
             <select id="timeRange">
                 <option value="1">Last Hour</option>
                 <option value="6">Last 6 Hours</option>
@@ -87,6 +87,7 @@
                             <th>Humidity</th>
                             <th>Raw Value</th>
                             <th>Device</th>
+                            <th>Alerts</th>
                         </tr>
                     </thead>
                     <tbody></tbody>
@@ -99,13 +100,13 @@
     <div id="sensorNamesModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h2>Edit Sensor Names</h2>
+                <h2>Sensor Configuration</h2>
                 <span class="close-modal">&times;</span>
             </div>
             <div class="modal-body">
-                <p>Customize how your sensors are displayed in the dashboard. These names are stored locally in your browser.</p>
+                <p>Customize how your sensors are displayed, set humidity thresholds for alerts, and manage alert settings. Settings are stored on the server and persist across restarts.</p>
                 <div id="sensorNamesList">
-                    <!-- Sensor name inputs will be populated here -->
+                    <!-- Sensor configuration inputs will be populated here -->
                 </div>
             </div>
             <div class="modal-footer">
