@@ -432,12 +432,17 @@ class HumidityDashboard {
 
     displayLatestMemory(memory) {
         const container = document.getElementById('latestMemory');
-        const date = new Date(memory.created_at);
-        const formattedDate = date.toLocaleString('en-GB', {
+        
+        // Parse timestamp as UTC and convert to local time
+        const date = new Date(memory.created_at + (memory.created_at.includes('Z') ? '' : 'Z'));
+        
+        // Format date in user's local timezone
+        const formattedDate = date.toLocaleString(undefined, {
             month: 'short',
             day: 'numeric',
             hour: '2-digit',
-            minute: '2-digit'
+            minute: '2-digit',
+            timeZoneName: 'short'
         });
 
         // Detect if text contains Hebrew characters

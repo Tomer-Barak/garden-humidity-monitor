@@ -77,13 +77,17 @@ class MemoriesPage {
             const memoryElement = document.createElement('div');
             memoryElement.className = 'memory-item';
             
-            const date = new Date(memory.created_at);
-            const formattedDate = date.toLocaleString('en-GB', {
+            // Parse timestamp as UTC and convert to local time
+            const date = new Date(memory.created_at + (memory.created_at.includes('Z') ? '' : 'Z'));
+            
+            // Format date in user's local timezone with full details
+            const formattedDate = date.toLocaleString(undefined, {
                 year: 'numeric',
                 month: 'long',
                 day: 'numeric',
                 hour: '2-digit',
-                minute: '2-digit'
+                minute: '2-digit',
+                timeZoneName: 'short'
             });
             
             // Detect if text contains Hebrew characters

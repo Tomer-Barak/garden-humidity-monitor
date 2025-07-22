@@ -20,7 +20,7 @@ CONFIG = {
     'database': 'humidity.db',
     'log_file': 'humidity_server.log',
     'log_level': logging.INFO,
-    'cleanup_days': 30,  # Keep data for 30 days
+    'cleanup_days': 30,  # Keep sensor data for 30 days (memories are kept forever)
     'timezone': 'Asia/Jerusalem'  # Israel timezone
 }
 
@@ -499,8 +499,9 @@ class HumidityDatabase:
             return readings
 
     def cleanup_old_data(self, days=30):
-        """Remove data older than specified days"""
+        """Remove old sensor data while preserving memories forever"""
         with self.get_connection() as conn:
+            # Only clean up humidity readings, never touch memories
             cursor = conn.execute('''
                 DELETE FROM humidity_readings 
                 WHERE created_at < datetime('now', '-{} days')
@@ -540,6 +541,25 @@ class HumidityDatabase:
                 LIMIT ?
             ''', (limit,))
             return [dict(row) for row in cursor.fetchall()]
+
+    def get_memory_stats(self):
+        """Get memory statistics"""
+        with self.get_connection() as conn:
+            cursor = conn.execute('''
+                SELECT 
+                    COUNT(*) as total_memories,
+                    COUNT(DISTINCT user_name) as unique_users,
+                    MIN(created_at) as oldest_memory,
+                    MAX(created_at) as newest_memory
+                FROM memories
+            ''')
+            result = cursor.fetchone()
+            return dict(result) if result else {
+                'total_memories': 0,
+                'unique_users': 0,
+                'oldest_memory': None,
+                'newest_memory': None
+            }
 
 
 # Initialize database
@@ -701,12 +721,23 @@ def get_humidity_stats():
 
 @app.route('/health', methods=['GET'])
 def health_check():
-    """Health check endpoint"""
-    return jsonify({
-        'status': 'healthy',
-        'timestamp': get_israel_timestamp(),
-        'service': 'humidity_server'
-    })
+    """Health check endpoint with memory statistics"""
+    try:
+        memory_stats = db.get_memory_stats()
+        return jsonify({
+            'status': 'healthy',
+            'timestamp': get_israel_timestamp(),
+            'service': 'humidity_server',
+            'memory_stats': memory_stats
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'healthy',
+            'timestamp': get_israel_timestamp(),
+            'service': 'humidity_server',
+            'memory_stats': 'unavailable',
+            'error': str(e)
+        })
 
 
 # Dashboard routes
@@ -954,7 +985,7 @@ def cleanup_task():
         try:
             time.sleep(86400)  # Run every 24 hours
             deleted = db.cleanup_old_data(CONFIG['cleanup_days'])
-            logger.info(f"Cleaned up {deleted} old records")
+            logger.info(f"Cleaned up {deleted} old sensor readings (memories preserved forever)")
         except Exception as e:
             logger.error(f"Error during cleanup: {e}")
 
