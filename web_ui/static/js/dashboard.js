@@ -4,6 +4,7 @@ class HumidityDashboard {
         this.refreshInterval = null;
         this.sensorConfigs = {};
         this.globalThreshold = 30.0;
+        this.setupMemoryUpdateListener();
         this.init();
     }
 
@@ -13,6 +14,7 @@ class HumidityDashboard {
         await this.loadDevices();
         await this.loadSensors();
         await this.loadData();
+        await this.loadLatestMemory();
         
         // Set initial time range labels based on default selection (24h)
         const initialHours = document.getElementById('timeRange').value;
@@ -25,6 +27,7 @@ class HumidityDashboard {
         document.getElementById('refreshBtn').addEventListener('click', () => {
             this.loadSensorConfigs(); // Refresh sensor configs when manually refreshing
             this.loadData();
+            this.loadLatestMemory(); // Refresh memories too
         });
         document.getElementById('deviceSelect').addEventListener('change', () => {
             this.loadSensors();
@@ -46,6 +49,37 @@ class HumidityDashboard {
                 this.closeSensorNamesModal();
             }
         });
+        
+        // Memory modal event listeners
+        document.getElementById('writeMemoryBtn').addEventListener('click', () => this.openMemoryModal());
+        document.getElementById('viewAllMemoriesBtn').addEventListener('click', () => {
+            window.location.href = '/memories';
+        });
+        document.getElementById('saveMemoryBtn').addEventListener('click', () => this.saveMemory());
+        document.getElementById('cancelMemoryBtn').addEventListener('click', () => this.closeMemoryModal());
+        document.getElementById('closeMemoryModal').addEventListener('click', () => this.closeMemoryModal());
+        
+        // Character counter for memory
+        document.getElementById('memoryTextInput').addEventListener('input', () => this.updateCharCounter());
+        
+        // Save username when typing
+        document.getElementById('userNameInput').addEventListener('input', () => this.saveUserName());
+        
+        // Close memory modal when clicking outside
+        document.getElementById('memoryModal').addEventListener('click', (e) => {
+            if (e.target === document.getElementById('memoryModal')) {
+                this.closeMemoryModal();
+            }
+        });
+        
+        // Memory form submission
+        document.getElementById('memoryForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.saveMemory();
+        });
+        
+        // RTL toggle
+        document.getElementById('rtlToggle').addEventListener('click', () => this.toggleRTL());
     }
 
     // Custom sensor names management - now server-side only
@@ -377,6 +411,267 @@ class HumidityDashboard {
                 this.showError('Failed to reset configuration');
             });
         }
+    }
+
+    // Memory functionality
+    async loadLatestMemory() {
+        try {
+            const response = await fetch('/api/memories');
+            const data = await response.json();
+            
+            if (data.status === 'success' && data.memories.length > 0) {
+                this.displayLatestMemory(data.memories[0]);
+            } else {
+                this.displayNoMemory();
+            }
+        } catch (error) {
+            console.error('Error loading latest memory:', error);
+            this.displayNoMemory();
+        }
+    }
+
+    displayLatestMemory(memory) {
+        const container = document.getElementById('latestMemory');
+        const date = new Date(memory.created_at);
+        const formattedDate = date.toLocaleString('en-GB', {
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+
+        // Detect if text contains Hebrew characters
+        const hasHebrew = /[\u0590-\u05FF]/.test(memory.memory_text);
+        const textDirectionClass = hasHebrew ? 'rtl-text' : 'ltr-text';
+
+        container.innerHTML = `
+            <div class="memory-content ${textDirectionClass}">${this.escapeHtml(memory.memory_text)}</div>
+            <div class="memory-meta">
+                <span class="memory-author">👤 ${this.escapeHtml(memory.user_name)}</span>
+                <span class="memory-date">🕒 ${formattedDate}</span>
+            </div>
+        `;
+    }
+
+    displayNoMemory() {
+        const container = document.getElementById('latestMemory');
+        container.innerHTML = '<div class="memory-placeholder">No memories yet. Share your first garden observation!</div>';
+    }
+
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    openMemoryModal() {
+        document.getElementById('memoryModal').style.display = 'block';
+        this.loadUserName();
+        this.loadRTLPreference();
+        document.getElementById('memoryTextInput').focus();
+        this.updateCharCounter();
+        this.setupEmojiPicker();
+    }
+
+    closeMemoryModal() {
+        document.getElementById('memoryModal').style.display = 'none';
+        // Clear the memory text but keep the user name
+        document.getElementById('memoryTextInput').value = '';
+        this.updateCharCounter();
+    }
+
+    updateCharCounter() {
+        const textarea = document.getElementById('memoryTextInput');
+        const counter = document.getElementById('charCount');
+        const length = textarea.value.length;
+        counter.textContent = length;
+        
+        // Change color if approaching limit
+        if (length > 900) {
+            counter.style.color = '#e74c3c';
+        } else if (length > 800) {
+            counter.style.color = '#f39c12';
+        } else {
+            counter.style.color = '#7f8c8d';
+        }
+    }
+
+    loadUserName() {
+        const savedName = localStorage.getItem('gardenMemoryUserName');
+        if (savedName) {
+            document.getElementById('userNameInput').value = savedName;
+        }
+    }
+
+    saveUserName() {
+        const userName = document.getElementById('userNameInput').value.trim();
+        if (userName) {
+            localStorage.setItem('gardenMemoryUserName', userName);
+        }
+    }
+
+    async saveMemory() {
+        const userName = document.getElementById('userNameInput').value.trim();
+        const memoryText = document.getElementById('memoryTextInput').value.trim();
+        
+        if (!userName) {
+            this.showError('Please enter your name');
+            document.getElementById('userNameInput').focus();
+            return;
+        }
+        
+        if (!memoryText) {
+            this.showError('Please enter a memory');
+            document.getElementById('memoryTextInput').focus();
+            return;
+        }
+        
+        if (memoryText.length > 1000) {
+            this.showError('Memory text is too long (maximum 1000 characters)');
+            return;
+        }
+        
+        try {
+            // Disable save button during submission
+            const saveBtn = document.getElementById('saveMemoryBtn');
+            const originalText = saveBtn.textContent;
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Saving...';
+            
+            const response = await fetch('/api/memories', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    user_name: userName,
+                    memory_text: memoryText
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (data.status === 'success') {
+                this.saveUserName(); // Save the username for future use
+                this.closeMemoryModal();
+                this.showSuccess('Memory saved successfully! 🌱');
+                await this.loadLatestMemory(); // Reload to show the new memory
+                
+                // Notify other tabs about the new memory
+                this.notifyMemoryUpdate();
+            } else {
+                this.showError('Failed to save memory: ' + (data.error || 'Unknown error'));
+            }
+        } catch (error) {
+            console.error('Error saving memory:', error);
+            this.showError('Failed to save memory');
+        } finally {
+            // Re-enable save button
+            const saveBtn = document.getElementById('saveMemoryBtn');
+            saveBtn.disabled = false;
+            saveBtn.textContent = originalText;
+        }
+    }
+
+    setupMemoryUpdateListener() {
+        // Listen for memory updates from other tabs/windows
+        window.addEventListener('storage', (e) => {
+            if (e.key === 'memoryUpdated' && e.newValue) {
+                // A memory was updated in another tab, refresh our display
+                this.loadLatestMemory();
+            }
+        });
+    }
+
+    notifyMemoryUpdate() {
+        // Use localStorage to communicate between tabs
+        // Set a timestamp to trigger storage event in other tabs
+        localStorage.setItem('memoryUpdated', Date.now().toString());
+        
+        // Remove the item immediately to allow for future notifications
+        setTimeout(() => {
+            localStorage.removeItem('memoryUpdated');
+        }, 100);
+    }
+
+    setupEmojiPicker() {
+        // Add click listeners to emoji spans
+        const emojis = document.querySelectorAll('#memoryModal .emoji');
+        emojis.forEach(emoji => {
+            emoji.addEventListener('click', () => {
+                this.insertEmoji(emoji.getAttribute('data-emoji'));
+            });
+        });
+    }
+
+    insertEmoji(emojiChar) {
+        const textarea = document.getElementById('memoryTextInput');
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        const text = textarea.value;
+        
+        // Insert emoji at cursor position
+        const newText = text.substring(0, start) + emojiChar + text.substring(end);
+        textarea.value = newText;
+        
+        // Update cursor position
+        const newCursorPos = start + emojiChar.length;
+        textarea.setSelectionRange(newCursorPos, newCursorPos);
+        
+        // Update character counter
+        this.updateCharCounter();
+        
+        // Focus back to textarea
+        textarea.focus();
+    }
+
+    toggleRTL() {
+        const textarea = document.getElementById('memoryTextInput');
+        const toggle = document.getElementById('rtlToggle');
+        const toggleText = document.getElementById('rtlToggleText');
+        
+        const isRTL = textarea.classList.contains('rtl-text');
+        
+        if (isRTL) {
+            // Switch to LTR
+            textarea.classList.remove('rtl-text');
+            textarea.classList.add('ltr-text');
+            toggle.classList.remove('active');
+            toggleText.textContent = 'א→ Hebrew';
+            localStorage.setItem('gardenMemoryRTL', 'false');
+        } else {
+            // Switch to RTL
+            textarea.classList.remove('ltr-text');
+            textarea.classList.add('rtl-text');
+            toggle.classList.add('active');
+            toggleText.textContent = '←A English';
+            localStorage.setItem('gardenMemoryRTL', 'true');
+        }
+        
+        textarea.focus();
+    }
+
+    loadRTLPreference() {
+        const isRTL = localStorage.getItem('gardenMemoryRTL') === 'true';
+        const textarea = document.getElementById('memoryTextInput');
+        const toggle = document.getElementById('rtlToggle');
+        const toggleText = document.getElementById('rtlToggleText');
+        
+        if (isRTL) {
+            textarea.classList.add('rtl-text');
+            textarea.classList.remove('ltr-text');
+            toggle.classList.add('active');
+            toggleText.textContent = '←A English';
+        } else {
+            textarea.classList.add('ltr-text');
+            textarea.classList.remove('rtl-text');
+            toggle.classList.remove('active');
+            toggleText.textContent = 'א→ Hebrew';
+        }
+    }
+
+    getTextDirection() {
+        return localStorage.getItem('gardenMemoryRTL') === 'true' ? 'rtl' : 'ltr';
     }
 
     showSuccess(message) {
@@ -853,6 +1148,7 @@ class HumidityDashboard {
         this.refreshInterval = setInterval(() => {
             this.loadSensorConfigs(); // Keep sensor configs in sync
             this.loadData();
+            this.loadLatestMemory(); // Keep memories in sync
         }, 30000);
     }
 

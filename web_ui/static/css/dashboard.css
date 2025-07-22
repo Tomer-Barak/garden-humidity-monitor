@@ -83,10 +83,14 @@ button:hover {
 
 #editSensorNamesBtn {
     background: #9b59b6;
-    padding: 8px 12px;
-    font-size: 16px;
+    padding: 8px 15px;
+    font-size: 14px;
     border-radius: 5px;
     min-width: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
 }
 
 #editSensorNamesBtn:hover {
@@ -456,5 +460,301 @@ tr:hover {
     
     .global-threshold-item input {
         width: 100%;
+    }
+}
+
+/* Memories card styles */
+.memories-card {
+    background: white;
+    padding: 20px;
+    border-radius: 10px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    margin-bottom: 20px;
+}
+
+.memories-card h3 {
+    color: #2c3e50;
+    margin-bottom: 15px;
+    font-size: 1.2em;
+}
+
+.latest-memory {
+    background: #f8f9fa;
+    border-left: 4px solid #27ae60;
+    padding: 15px;
+    border-radius: 0 8px 8px 0;
+    margin-bottom: 15px;
+    min-height: 60px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.memory-placeholder {
+    color: #7f8c8d;
+    font-style: italic;
+    text-align: center;
+}
+
+.memory-content {
+    color: #2c3e50;
+    line-height: 1.5;
+    margin-bottom: 8px;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+.memory-content.rtl-text {
+    direction: rtl;
+    text-align: right;
+}
+
+.memory-content.ltr-text {
+    direction: ltr;
+    text-align: left;
+}
+
+.memory-meta {
+    font-size: 12px;
+    color: #7f8c8d;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.memory-author {
+    font-weight: 500;
+}
+
+.memory-date {
+    opacity: 0.8;
+}
+
+.memory-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.btn-memory {
+    background: #27ae60;
+    color: white;
+    border: none;
+    padding: 10px 16px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background 0.3s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.btn-memory:hover {
+    background: #219a52;
+}
+
+.btn-memory-secondary {
+    background: #95a5a6;
+    color: white;
+    border: none;
+    padding: 10px 16px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background 0.3s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    text-decoration: none;
+}
+
+.btn-memory-secondary:hover {
+    background: #7f8c8d;
+}
+
+/* Memory modal form styles */
+.form-group {
+    margin-bottom: 20px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 500;
+    color: #2c3e50;
+}
+
+.form-group input,
+.form-group textarea {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    font-size: 14px;
+    font-family: inherit;
+    box-sizing: border-box;
+    resize: vertical;
+}
+
+.form-group input:focus,
+.form-group textarea:focus {
+    outline: none;
+    border-color: #3498db;
+    box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.1);
+}
+
+.form-group small {
+    display: block;
+    margin-top: 5px;
+    color: #7f8c8d;
+    font-size: 12px;
+}
+
+/* Memory input controls */
+.memory-input-controls {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 8px;
+}
+
+.rtl-toggle {
+    background: #95a5a6;
+    color: white;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: background 0.3s;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.rtl-toggle:hover {
+    background: #7f8c8d;
+}
+
+.rtl-toggle.active {
+    background: #3498db;
+}
+
+.rtl-toggle.active:hover {
+    background: #2980b9;
+}
+
+/* RTL text support */
+.rtl-text {
+    direction: rtl;
+    text-align: right;
+}
+
+.ltr-text {
+    direction: ltr;
+    text-align: left;
+}
+
+.char-counter {
+    text-align: right;
+    margin-top: 5px;
+    font-size: 12px;
+    color: #7f8c8d;
+}
+
+/* Emoji picker styles */
+.emoji-picker {
+    margin-top: 10px;
+    padding: 15px;
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.emoji-category {
+    margin-bottom: 12px;
+}
+
+.emoji-category:last-child {
+    margin-bottom: 0;
+}
+
+.emoji-category strong {
+    display: block;
+    margin-bottom: 6px;
+    color: #495057;
+    font-size: 13px;
+}
+
+.emoji {
+    display: inline-block;
+    font-size: 20px;
+    padding: 6px;
+    margin: 2px;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+    user-select: none;
+    min-width: 32px;
+    text-align: center;
+}
+
+.emoji:hover {
+    background: #dee2e6;
+    transform: scale(1.2);
+    z-index: 1;
+    position: relative;
+}
+
+.emoji:active {
+    transform: scale(1.1);
+    background: #ced4da;
+}
+
+/* Custom scrollbar for emoji picker */
+.emoji-picker::-webkit-scrollbar {
+    width: 8px;
+}
+
+.emoji-picker::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+}
+
+.emoji-picker::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 4px;
+}
+
+.emoji-picker::-webkit-scrollbar-thumb:hover {
+    background: #a1a1a1;
+}
+
+@media (max-width: 768px) {
+    .memory-actions {
+        flex-direction: column;
+    }
+    
+    .memory-meta {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    .emoji-picker {
+        max-height: 250px;
+    }
+    
+    .emoji {
+        font-size: 18px;
+        padding: 4px;
+        min-width: 28px;
+    }
+    
+    .emoji-category strong {
+        font-size: 12px;
     }
 }

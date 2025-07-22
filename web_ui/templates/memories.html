@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Garden</title>
+    <title>Garden Memories</title>
     
     <!-- PWA Meta Tags -->
     <meta name="application-name" content="Garden">
@@ -23,107 +23,179 @@
     <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
     
     <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .memories-container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .memories-header {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+        
+        .memories-header h1 {
+            color: #2c3e50;
+            font-size: 2.5em;
+            margin: 0;
+        }
+        
+        .header-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        
+        .btn-home {
+            background: #3498db;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: background 0.3s;
+        }
+        
+        .btn-home:hover {
+            background: #2980b9;
+        }
+        
+        .btn-write {
+            background: #e74c3c;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: background 0.3s;
+        }
+        
+        .btn-write:hover {
+            background: #c0392b;
+        }
+        
+        .memories-list {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .memory-item {
+            padding: 20px;
+            border-bottom: 1px solid #eee;
+            transition: background 0.2s;
+        }
+        
+        .memory-item:last-child {
+            border-bottom: none;
+        }
+        
+        .memory-item:hover {
+            background: #f8f9fa;
+        }
+        
+        .memory-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        
+        .memory-author {
+            font-weight: 600;
+            color: #2c3e50;
+            font-size: 16px;
+        }
+        
+        .memory-date {
+            color: #7f8c8d;
+            font-size: 14px;
+        }
+        
+        .memory-text {
+            color: #34495e;
+            line-height: 1.6;
+            font-size: 15px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        
+        .memory-text.rtl-text {
+            direction: rtl;
+            text-align: right;
+        }
+        
+        .memory-text.ltr-text {
+            direction: ltr;
+            text-align: left;
+        }
+        
+        .no-memories {
+            text-align: center;
+            padding: 60px 20px;
+            color: #7f8c8d;
+        }
+        
+        .no-memories h3 {
+            margin-bottom: 15px;
+            color: #95a5a6;
+        }
+        
+        .loading-memories {
+            text-align: center;
+            padding: 60px 20px;
+            color: #7f8c8d;
+        }
+        
+        @media (max-width: 768px) {
+            .memories-header h1 {
+                font-size: 2em;
+            }
+            
+            .header-actions {
+                width: 100%;
+                justify-content: center;
+            }
+            
+            .memory-header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+        }
+    </style>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>🌱 Garden Humidity Dashboard</h1>
-            <div class="status-indicator" id="status"></div>
-        </header>
-
-        <div class="controls">
-            <select id="deviceSelect">
-                <option value="">All Devices</option>
-            </select>
-            <select id="sensorSelect">
-                <option value="">All Sensors</option>
-            </select>
-            <button id="editSensorNamesBtn" title="Sensor Configuration">⚙️ Settings</button>
-            <select id="timeRange">
-                <option value="1">Last Hour</option>
-                <option value="6">Last 6 Hours</option>
-                <option value="24" selected>Last 24 Hours</option>
-                <option value="168">Last Week</option>
-            </select>
-            <button id="refreshBtn">Refresh</button>
-        </div>
-
-        <div class="stats-grid">
-            <div class="stat-card">
-                <h3>Current Humidity</h3>
-                <div class="stat-value" id="currentHumidity">--</div>
-                <div class="stat-unit">%</div>
-            </div>
-            <div class="stat-card">
-                <h3>Average (24h)</h3>
-                <div class="stat-value" id="avgHumidity">--</div>
-                <div class="stat-unit">%</div>
-            </div>
-            <div class="stat-card">
-                <h3>Min/Max (24h)</h3>
-                <div class="stat-value" id="minMaxHumidity">--</div>
-                <div class="stat-unit">%</div>
-            </div>
-            <div class="stat-card">
-                <h3>Total Readings</h3>
-                <div class="stat-value" id="totalReadings">--</div>
-                <div class="stat-unit">readings</div>
+    <div class="memories-container">
+        <div class="memories-header">
+            <h1>📖 Garden Memory Book</h1>
+            <div class="header-actions">
+                <a href="/" class="btn-home">🏠 Dashboard</a>
+                <button id="writeMemoryBtn" class="btn-write">✏️ Write Memory</button>
             </div>
         </div>
 
-        <div class="chart-container">
-            <canvas id="humidityChart"></canvas>
-        </div>
-
-        <div class="memories-card">
-            <h3>📝 Garden Memories</h3>
-            <div class="latest-memory" id="latestMemory">
-                <div class="memory-placeholder">No memories yet. Share your first garden observation!</div>
-            </div>
-            <div class="memory-actions">
-                <button id="writeMemoryBtn" class="btn-memory">✏️ Write Memory</button>
-                <button id="viewAllMemoriesBtn" class="btn-memory-secondary">📖 View All</button>
-            </div>
-        </div>
-
-        <div class="recent-readings">
-            <h3>Recent Readings</h3>
-            <div class="table-container">
-                <table id="readingsTable">
-                    <thead>
-                        <tr>
-                            <th>Time</th>
-                            <th>Sensor</th>
-                            <th>Humidity</th>
-                            <th>Raw Value</th>
-                            <th>Device</th>
-                            <th>Alerts</th>
-                        </tr>
-                    </thead>
-                    <tbody></tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-
-    <!-- Sensor Names Edit Modal -->
-    <div id="sensorNamesModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2>Sensor Configuration</h2>
-                <span class="close-modal">&times;</span>
-            </div>
-            <div class="modal-body">
-                <p>Customize how your sensors are displayed, set humidity thresholds for alerts, and manage alert settings. Settings are stored on the server and persist across restarts.</p>
-                <div id="sensorNamesList">
-                    <!-- Sensor configuration inputs will be populated here -->
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button id="saveSensorNames" class="btn-primary">Save Changes</button>
-                <button id="resetSensorNames" class="btn-secondary">Reset to Default</button>
-                <button id="cancelSensorNames" class="btn-secondary">Cancel</button>
+        <div class="memories-list" id="memoriesList">
+            <div class="loading-memories">
+                Loading memories...
             </div>
         </div>
     </div>
@@ -283,6 +355,6 @@
         </div>
     </div>
 
-    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/memories.js') }}"></script>
 </body>
 </html>

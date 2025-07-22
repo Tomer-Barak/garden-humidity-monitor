@@ -24,8 +24,10 @@ The system implements a three-tier architecture comprising sensor nodes, data pr
 - **Real-Time Monitoring**: Continuous data collection with adjustable intervals.
 - **Data Storage**: Historical readings are stored in a SQLite database.
 - **Interactive Dashboard**: Visualize trends, filter data by device or sensor, and view multiple sensors on the same chart.
+- **Garden Memory Book**: A collaborative journaling system for tracking observations, discoveries, and gardening notes with emoji support.
 - **Progressive Web App (PWA)**: Mobile-responsive dashboard with offline capability for cross-platform access.
 - **Automated Data Management**: Configurable data retention policies with automatic cleanup routines.
+- **Multi-Language Support**: Hebrew/RTL text support for international users.
 
 ## System Architecture
 
@@ -33,15 +35,16 @@ The system implements a three-tier architecture comprising sensor nodes, data pr
 ┌─────────────────┐      HTTP      ┌──────────────┐      HTTP      ┌─────────────┐
 │  ESP32 with     │ ───────────────▶ Python Flask ◀────────────── │ Web Browser │
 │ Multiple Sensors│  JSON Payload  │    Server    │  JSON/HTML     │  Dashboard  │
-│ (3 sensors max) │                │              │                │             │
-└─────────────────┘                └──────────────┘                └─────────────┘
+│ (3 sensors max) │                │   + Memory   │                │ + Memory    │
+└─────────────────┘                │     API      │                │   Book      │
+                                    └──────────────┘                └─────────────┘
                                           │
                                           │ SQLite
                                           ▼
                                     ┌──────────────┐
                                     │  humidity.db │
-                                    │              │
-                                    │              │
+                                    │ + memories   │
+                                    │   table      │
                                     └──────────────┘
 ```
 
@@ -58,6 +61,41 @@ The server application implements RESTful API endpoints for data ingestion and r
 ### Web Dashboard
 
 The responsive web interface provides real-time monitoring capabilities and historical data visualization through interactive charts. Features include device and sensor filtering, multi-sensor comparison views, and mobile-optimized design patterns.
+
+### Garden Memory Book
+
+The Garden Memory Book is a collaborative journaling feature that enables family members and gardeners to document their observations, discoveries, and gardening experiences. This feature transforms the monitoring system from a purely technical tool into a shared family garden diary.
+
+#### Key Features
+
+- **Collaborative Journaling**: Multiple family members can contribute memories and observations
+- **Rich Text Support**: Full emoji support with an organized emoji picker featuring 90+ garden-related emojis
+- **Persistent Storage**: All memories are stored in the database and persist across sessions
+- **Multi-Language Support**: Hebrew/RTL text support with automatic text direction detection
+- **Real-Time Sync**: Cross-tab communication ensures all open instances stay synchronized
+- **Dual Interface**: 
+  - **Dashboard Memory Card**: Quick view of the latest memory with easy access to write new ones
+  - **Dedicated Memory Book**: Full browsing experience with all historical memories
+
+#### Use Cases
+
+The Memory Book bridges the gap between technical data and human experience:
+
+- **Seasonal Observations**: "🌱 First tomato sprouts appeared today! Humidity levels have been perfect at 65% 📊"
+- **Problem Tracking**: "🐛 Found aphids on the roses 😰 Applied organic spray 🧴 - let's monitor if humidity changes help"
+- **Success Stories**: "🎉 First harvest of the season! 🥕🥬 The consistent moisture monitoring really paid off 👍"
+- **Family Collaboration**: "👨‍🌾 Dad: Watered the garden this morning 💧" / "👩‍🌾 Mom: Plants look much happier now! 😊"
+- **Learning Documentation**: "🤔 Noticed humidity drops quickly on sunny days ☀️ - might need automatic watering system"
+
+#### Technical Implementation
+
+- **Database Storage**: Memories are stored with user names, timestamps, and full text content
+- **Cross-Platform Sync**: localStorage-based communication keeps all browser tabs synchronized
+- **Smart Text Direction**: Automatic Hebrew text detection with manual RTL/LTR toggle
+- **User Persistence**: Browser remembers user names for quick future entries
+- **Responsive Design**: Optimized for both desktop and mobile devices
+
+This feature transforms raw sensor data into meaningful family memories, creating a comprehensive record of gardening experiences that combines technical insights with human observations.
 
 ## Installation and Configuration
 
@@ -102,11 +140,20 @@ http://[server-ip]:8080
 ## API Documentation
 
 The server exposes RESTful endpoints for data management and system monitoring:
+
+### Sensor Data Endpoints
 - **POST /humidity**: Submit sensor readings in JSON format.
 - **GET /humidity/latest**: Retrieve most recent readings from all sensors.
 - **GET /humidity/history**: Query historical data with optional filtering parameters.
 - **GET /humidity/stats**: Obtain statistical summaries and aggregated metrics.
+
+### Memory Book Endpoints
+- **GET /api/memories**: Retrieve garden memories (latest only or all with `?all=true` parameter).
+- **POST /api/memories**: Add a new garden memory with user name and text content.
+
+### System Endpoints
 - **GET /health**: System health check and status monitoring.
+- **GET /memories**: Access the dedicated Garden Memory Book interface.
 
 ## Configuration Options
 
@@ -135,11 +182,22 @@ CONFIG = {
 
 ## Development Roadmap
 
+### Completed Features ✅
+- ✅ Garden Memory Book with collaborative journaling
+- ✅ Emoji support with organized picker (90+ garden-related emojis)
+- ✅ Hebrew/RTL text support with automatic detection
+- ✅ Cross-tab synchronization for real-time updates
+- ✅ Dual memory interface (dashboard card + dedicated book)
+
+### Future Enhancements
 - Implementation of authentication and authorization mechanisms
 - Alert system for threshold-based notifications
 - Support for additional sensor types (temperature, light intensity, pH)
 - Mobile application development for push notifications
 - Integration with automated irrigation control systems
+- Memory search and filtering capabilities
+- Photo attachments for garden memories
+- Seasonal memory organization and tagging
 
 ## License
 

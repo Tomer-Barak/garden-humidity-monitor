@@ -225,6 +225,17 @@ class HumidityDatabase:
                          VALUES ('global_humidity_threshold', '30.0')
                          ''')
             
+            # Create memories table
+            conn.execute('''
+                         CREATE TABLE IF NOT EXISTS memories
+                         (
+                             id INTEGER PRIMARY KEY AUTOINCREMENT,
+                             user_name TEXT NOT NULL,
+                             memory_text TEXT NOT NULL,
+                             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                         )
+                         ''')
+            
             # Create indexes
             conn.execute('''
                          CREATE INDEX IF NOT EXISTS idx_device_timestamp
@@ -498,6 +509,38 @@ class HumidityDatabase:
             conn.commit()
             return deleted_count
 
+    def add_memory(self, user_name, memory_text):
+        """Add a new memory entry"""
+        with self.get_connection() as conn:
+            conn.execute('''
+                INSERT INTO memories (user_name, memory_text)
+                VALUES (?, ?)
+            ''', (user_name, memory_text))
+            conn.commit()
+
+    def get_latest_memory(self):
+        """Get the most recent memory"""
+        with self.get_connection() as conn:
+            cursor = conn.execute('''
+                SELECT id, user_name, memory_text, created_at
+                FROM memories
+                ORDER BY created_at DESC
+                LIMIT 1
+            ''')
+            result = cursor.fetchone()
+            return dict(result) if result else None
+
+    def get_all_memories(self, limit=50):
+        """Get all memories with optional limit"""
+        with self.get_connection() as conn:
+            cursor = conn.execute('''
+                SELECT id, user_name, memory_text, created_at
+                FROM memories
+                ORDER BY created_at DESC
+                LIMIT ?
+            ''', (limit,))
+            return [dict(row) for row in cursor.fetchall()]
+
 
 # Initialize database
 db = HumidityDatabase(CONFIG['database'])
@@ -679,6 +722,12 @@ def dashboard_redirect():
     return render_template('dashboard.html')
 
 
+@app.route('/memories')
+def memories_page():
+    """Memories page"""
+    return render_template('memories.html')
+
+
 @app.route('/api/devices')
 def get_devices():
     """Get list of unique device IDs"""
@@ -843,6 +892,59 @@ def toggle_sensor_alerts(device_id, sensor_id):
         
     except Exception as e:
         logger.error(f"Error toggling alerts for {device_id}:{sensor_id}: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+
+@app.route('/api/memories', methods=['GET'])
+def get_memories():
+    """Get memories - latest one or all"""
+    try:
+        all_memories = request.args.get('all', 'false').lower() == 'true'
+        
+        if all_memories:
+            memories = db.get_all_memories()
+        else:
+            latest = db.get_latest_memory()
+            memories = [latest] if latest else []
+        
+        return jsonify({
+            'status': 'success',
+            'memories': memories
+        })
+    except Exception as e:
+        logger.error(f"Error getting memories: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+
+@app.route('/api/memories', methods=['POST'])
+def add_memory():
+    """Add a new memory"""
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'No JSON data provided'}), 400
+        
+        user_name = data.get('user_name', '').strip()
+        memory_text = data.get('memory_text', '').strip()
+        
+        if not user_name or not memory_text:
+            return jsonify({'error': 'Both user_name and memory_text are required'}), 400
+        
+        if len(memory_text) > 1000:  # Reasonable limit
+            return jsonify({'error': 'Memory text too long (max 1000 characters)'}), 400
+        
+        db.add_memory(user_name, memory_text)
+        
+        logger.info(f"New memory added by {user_name}: {memory_text[:50]}...")
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Memory added successfully'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error adding memory: {e}")
         return jsonify({'error': 'Internal server error'}), 500
 
 
