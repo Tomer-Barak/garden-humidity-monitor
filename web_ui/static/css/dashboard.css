@@ -126,6 +126,41 @@ button:hover {
     flex-direction: column;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
     animation: slideIn 0.3s;
+    /* Ensure modal can shrink when needed */
+    min-height: 0;
+}
+
+/* Viewport-aware modal sizing for mobile keyboards */
+@supports (height: 100dvh) {
+    .modal-content {
+        /* Use dynamic viewport height when supported (modern browsers) */
+        max-height: 80dvh;
+    }
+    
+    @media (max-width: 768px) {
+        .modal-content {
+            max-height: calc(100dvh - 4vh);
+        }
+        
+        .modal-body {
+            max-height: calc(100dvh - 200px);
+        }
+    }
+}
+
+/* Fallback for iOS Safari and older browsers */
+@media (max-width: 768px) and (orientation: portrait) {
+    .modal-content {
+        /* More aggressive height reduction for portrait mobile */
+        max-height: calc(100vh - 40px);
+        margin: 20px auto;
+    }
+    
+    .modal-body {
+        /* Ensure body can scroll within available space */
+        max-height: calc(100vh - 180px);
+        overflow-y: auto;
+    }
 }
 
 @keyframes slideIn {
@@ -170,6 +205,10 @@ button:hover {
     flex: 1;
     overflow-y: auto;
     min-height: 0;
+    /* Improve mobile scrolling behavior */
+    -webkit-overflow-scrolling: touch;
+    /* Prevent overscroll from affecting parent elements */
+    overscroll-behavior: contain;
 }
 
 /* Custom scrollbar for modal */
@@ -408,9 +447,39 @@ tr:hover {
     }
     
     .modal-content {
-        margin: 10% auto;
+        /* Use more flexible positioning for mobile */
+        margin: 2vh auto;
         width: 95%;
-        max-height: 85vh;
+        /* Use absolute max-height that works better with keyboard */
+        max-height: calc(100vh - 4vh);
+        /* Ensure modal fits in available space when keyboard is open */
+        min-height: 0;
+    }
+    
+    /* Additional modal adjustments for better keyboard handling */
+    .modal-body {
+        /* Allow more flexible scrolling on mobile */
+        max-height: calc(100vh - 200px);
+        /* Ensure scrolling works when keyboard is open */
+        overflow-y: auto;
+        /* Better touch scrolling */
+        -webkit-overflow-scrolling: touch;
+    }
+    
+    /* Ensure footer stays accessible */
+    .modal-footer {
+        flex-direction: column;
+        /* Reduce padding to save space */
+        padding: 15px 20px;
+        /* Ensure footer doesn't get too squeezed */
+        flex-shrink: 0;
+    }
+    
+    .modal-footer button {
+        width: 100%;
+        margin-bottom: 5px;
+        /* Ensure buttons are easily tappable */
+        min-height: 44px;
     }
     
     .sensor-name-item {
@@ -421,15 +490,6 @@ tr:hover {
     
     .sensor-original-name {
         min-width: auto;
-    }
-    
-    .modal-footer {
-        flex-direction: column;
-    }
-    
-    .modal-footer button {
-        width: 100%;
-        margin-bottom: 5px;
     }
     
     /* Sensor config responsive styles */
@@ -460,6 +520,35 @@ tr:hover {
     
     .global-threshold-item input {
         width: 100%;
+    }
+    
+    /* Better emoji picker behavior on mobile */
+    .emoji-picker {
+        /* Make it shorter on mobile to leave more room for buttons */
+        max-height: 180px;
+        /* Add a subtle border to indicate it's a separate scrollable area */
+        border: 2px solid #dee2e6;
+        /* Make scrollbars more visible on mobile if supported */
+        scrollbar-width: auto;
+    }
+    
+    /* Memory form adjustments for mobile */
+    .form-group textarea {
+        /* Reduce textarea height on mobile to save space */
+        min-height: 80px;
+        /* Prevent aggressive auto-resize */
+        resize: none;
+    }
+    
+    /* Photo controls mobile optimization */
+    .rotation-controls {
+        justify-content: center;
+    }
+    
+    .btn-rotate {
+        min-width: 70px;
+        padding: 6px 12px;
+        font-size: 13px;
     }
 }
 
@@ -549,6 +638,7 @@ tr:hover {
     transition: background 0.3s;
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 6px;
 }
 
@@ -567,6 +657,7 @@ tr:hover {
     transition: background 0.3s;
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 6px;
     text-decoration: none;
 }
@@ -673,6 +764,39 @@ tr:hover {
     border-radius: 8px;
     max-height: 300px;
     overflow-y: auto;
+    /* Improve mobile touch scrolling */
+    -webkit-overflow-scrolling: touch;
+    /* Contain scroll by default, JavaScript will handle chaining */
+    overscroll-behavior: contain;
+    /* Ensure this element captures touch events for scrolling */
+    touch-action: pan-y;
+    /* Add a subtle shadow to indicate scrollable content */
+    position: relative;
+}
+
+/* Add visual indicators for scrollable content */
+.emoji-picker::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 15px;
+    right: 15px;
+    height: 10px;
+    background: linear-gradient(to bottom, rgba(248,249,250,1) 0%, rgba(248,249,250,0) 100%);
+    pointer-events: none;
+    z-index: 1;
+}
+
+.emoji-picker::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 15px;
+    right: 15px;
+    height: 10px;
+    background: linear-gradient(to top, rgba(248,249,250,1) 0%, rgba(248,249,250,0) 100%);
+    pointer-events: none;
+    z-index: 1;
 }
 
 .emoji-category {
@@ -734,27 +858,291 @@ tr:hover {
     background: #a1a1a1;
 }
 
+/* Photo input styles */
+.photo-input-controls {
+    margin-bottom: 10px;
+}
+
+.photo-buttons {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.btn-photo {
+    background: #3498db;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background 0.3s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.btn-photo:hover {
+    background: #2980b9;
+}
+
+.btn-photo.btn-remove {
+    background: #e74c3c;
+}
+
+.btn-photo.btn-remove:hover {
+    background: #c0392b;
+}
+
+.photo-preview {
+    margin-top: 10px;
+    border: 2px dashed #ddd;
+    border-radius: 8px;
+    padding: 15px;
+    background: #f8f9fa;
+    text-align: center;
+}
+
+.photo-preview img {
+    max-width: 100%;
+    max-height: 200px;
+    border-radius: 5px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+/* Photo rotation controls */
+.photo-rotation-controls {
+    margin-top: 15px;
+    padding: 15px;
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+}
+
+.photo-rotation-controls label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 600;
+    color: #495057;
+}
+
+.rotation-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+}
+
+.btn-rotate {
+    background: #3498db;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 80px;
+    justify-content: center;
+}
+
+.btn-rotate:hover {
+    background: #2980b9;
+    transform: translateY(-1px);
+}
+
+.btn-rotate:active {
+    transform: translateY(0);
+}
+
+.btn-rotate.btn-reset {
+    background: #95a5a6;
+}
+
+.btn-rotate.btn-reset:hover {
+    background: #7f8c8d;
+}
+
+.rotation-display {
+    background: #ecf0f1;
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-weight: 600;
+    color: #2c3e50;
+    min-width: 40px;
+    text-align: center;
+    border: 1px solid #bdc3c7;
+}
+
+.photo-rotation-controls small {
+    color: #6c757d;
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+/* Rotating preview image */
+.photo-preview img {
+    max-width: 100%;
+    max-height: 200px;
+    border-radius: 5px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    transition: transform 0.3s ease;
+}
+
+.photo-preview img.rotate-90 {
+    transform: rotate(90deg);
+}
+
+.photo-preview img.rotate-180 {
+    transform: rotate(180deg);
+}
+
+.photo-preview img.rotate-270 {
+    transform: rotate(270deg);
+}
+
+.photo-info {
+    margin-top: 10px;
+    font-size: 12px;
+    color: #6c757d;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.camera-preview {
+    width: 100%;
+    max-width: 400px;
+    height: 300px;
+    border-radius: 8px;
+    background: #000;
+    margin: 10px 0;
+}
+
+/* Memory photo display */
+.memory-photo {
+    margin-top: 10px;
+    text-align: center;
+}
+
+.memory-photo img {
+    max-width: 100%;
+    max-height: 300px;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    cursor: pointer;
+    transition: transform 0.2s;
+}
+
+.memory-photo img:hover {
+    transform: scale(1.02);
+}
+
+/* Photo modal for full view */
+.photo-modal {
+    display: none;
+    position: fixed;
+    z-index: 2000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.9);
+    animation: fadeIn 0.3s;
+}
+
+.photo-modal-content {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    max-width: 90%;
+    max-height: 90%;
+}
+
+.photo-modal img {
+    width: 100%;
+    height: auto;
+    border-radius: 8px;
+}
+
+.photo-modal-close {
+    position: absolute;
+    top: 20px;
+    right: 30px;
+    color: white;
+    font-size: 40px;
+    font-weight: bold;
+    cursor: pointer;
+    z-index: 2001;
+}
+
+.photo-modal-close:hover {
+    opacity: 0.7;
+}
+
 @media (max-width: 768px) {
-    .memory-actions {
+    .photo-buttons {
         flex-direction: column;
     }
     
-    .memory-meta {
+    .btn-photo {
+        width: 100%;
+        justify-content: center;
+    }
+    
+    .camera-preview {
+        height: 250px;
+    }
+    
+    .photo-info {
         flex-direction: column;
-        align-items: flex-start;
+        gap: 5px;
     }
     
-    .emoji-picker {
-        max-height: 250px;
+    .photo-modal-close {
+        top: 10px;
+        right: 15px;
+        font-size: 30px;
     }
     
-    .emoji {
-        font-size: 18px;
-        padding: 4px;
-        min-width: 28px;
+    /* Ensure modal footer is always accessible */
+    .modal-footer {
+        position: sticky;
+        bottom: 0;
+        background: white;
+        border-top: 1px solid #eee;
+        z-index: 10;
+        margin-top: auto;
     }
     
-    .emoji-category strong {
-        font-size: 12px;
+    /* Additional safety for input fields in modals */
+    .form-group input:focus,
+    .form-group textarea:focus {
+        /* Ensure focused inputs are properly visible */
+        position: relative;
+        z-index: 5;
+    }
+    
+    /* Reduce emoji picker height more aggressively when space is limited */
+    @media (max-height: 600px) {
+        .emoji-picker {
+            max-height: 120px;
+        }
+        
+        .form-group textarea {
+            min-height: 60px;
+            max-height: 100px;
+        }
+        
+        .modal-header,
+        .modal-footer {
+            padding: 10px 20px;
+        }
     }
 }

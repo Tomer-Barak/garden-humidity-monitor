@@ -6,12 +6,16 @@ from logging.handlers import RotatingFileHandler
 import sqlite3
 import threading
 import time
+import uuid
 from datetime import datetime
-from flask import Flask, request, jsonify, render_template, send_from_directory
+from flask import Flask, request, jsonify, render_template, send_from_directory, send_file
 from contextlib import contextmanager
+from werkzeug.utils import secure_filename
 import os
 import pytz
 import requests
+from PIL import Image, ImageOps
+import io
 
 # Configuration
 CONFIG = {
@@ -21,7 +25,10 @@ CONFIG = {
     'log_file': 'humidity_server.log',
     'log_level': logging.INFO,
     'cleanup_days': 30,  # Keep sensor data for 30 days (memories are kept forever)
-    'timezone': 'Asia/Jerusalem'  # Israel timezone
+    'timezone': 'Asia/Jerusalem',  # Israel timezone
+    'upload_folder': 'uploads/photos',  # Photo storage directory
+    'max_file_size': 10 * 1024 * 1024,  # 10MB max file size
+    'allowed_extensions': {'png', 'jpg', 'jpeg', 'gif', 'webp'}
 }
 
 
@@ -47,6 +54,123 @@ logger.addHandler(stream_handler)
 app = Flask(__name__, 
             static_folder='web_ui/static',
             template_folder='web_ui/templates')
+
+# Configure upload settings
+app.config['MAX_CONTENT_LENGTH'] = CONFIG['max_file_size']
+
+# Ensure upload directory exists
+os.makedirs(CONFIG['upload_folder'], exist_ok=True)
+
+# Add request logging middleware
+@app.before_request
+def log_request_info():
+    """Log detailed request information"""
+    logger.info(f"Request: {request.method} {request.path} from {request.remote_addr}")
+    if request.content_length:
+        logger.info(f"Content-Length: {request.content_length} bytes")
+        # Check if content length exceeds max file size
+        if request.content_length > CONFIG['max_file_size']:
+            logger.warning(f"Request content length ({request.content_length}) exceeds max file size ({CONFIG['max_file_size']})")
+    if request.content_type:
+        logger.info(f"Content-Type: {request.content_type}")
+
+@app.errorhandler(413)
+def handle_file_too_large(error):
+    """Handle file too large error"""
+    logger.error(f"File too large error: {error}")
+    return jsonify({'error': f'File too large. Maximum size is {CONFIG["max_file_size"] // (1024*1024)}MB'}), 413
+
+@app.after_request
+def log_response_info(response):
+    """Log response information"""
+    logger.info(f"Response: {response.status_code} for {request.method} {request.path}")
+    return response
+
+
+def allowed_file(filename):
+    """Check if uploaded file has allowed extension"""
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in CONFIG['allowed_extensions']
+
+
+def resize_image(image_data, max_width=1920, max_height=1080, quality=85, rotation=None):
+    """Resize, rotate and optimize image while maintaining aspect ratio
+    
+    Args:
+        image_data: Raw image bytes
+        max_width: Maximum width in pixels
+        max_height: Maximum height in pixels
+        quality: JPEG quality (1-100)
+        rotation: Manual rotation in degrees (0, 90, 180, 270) or None for auto-rotation only
+    """
+    try:
+        logger.info(f"Starting image processing - Input size: {len(image_data)} bytes, Max dimensions: {max_width}x{max_height}, Quality: {quality}, Rotation: {rotation}")
+        
+        # Open image from bytes
+        logger.info("Opening image from bytes")
+        img = Image.open(io.BytesIO(image_data))
+        logger.info(f"Image opened successfully - Mode: {img.mode}, Size: {img.size}")
+        
+        # Apply automatic EXIF orientation correction first
+        logger.info("Applying EXIF orientation correction")
+        img = ImageOps.exif_transpose(img)
+        logger.info(f"EXIF orientation applied - New size: {img.size}")
+        
+        # Apply manual rotation if specified
+        if rotation is not None:
+            if rotation in [90, 180, 270]:
+                logger.info(f"Applying manual rotation: {rotation} degrees")
+                img = img.rotate(-rotation, expand=True)  # Negative because PIL rotates counter-clockwise
+                logger.info(f"Manual rotation applied - New size: {img.size}")
+            elif rotation != 0:
+                logger.warning(f"Invalid rotation value {rotation}, skipping manual rotation")
+        
+        # Convert to RGB if necessary (handles RGBA, P mode images)
+        if img.mode in ('RGBA', 'P'):
+            logger.info(f"Converting image from {img.mode} to RGB")
+            img = img.convert('RGB')
+            logger.info("Image conversion completed")
+        
+        # Calculate new size maintaining aspect ratio
+        original_width, original_height = img.size
+        logger.info(f"Final dimensions before resize: {original_width}x{original_height}")
+        
+        # Only resize if image is larger than max dimensions
+        if original_width > max_width or original_height > max_height:
+            ratio = min(max_width / original_width, max_height / original_height)
+            new_width = int(original_width * ratio)
+            new_height = int(original_height * ratio)
+            
+            logger.info(f"Resizing image - Ratio: {ratio:.3f}, New dimensions: {new_width}x{new_height}")
+            
+            # Use LANCZOS for high quality resizing
+            img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            logger.info("Image resize completed")
+        else:
+            logger.info("Image size within limits, no resize needed")
+        
+        # Save optimized image to bytes
+        logger.info("Starting image compression and save")
+        output = io.BytesIO()
+        img.save(output, format='JPEG', quality=quality, optimize=True)
+        output.seek(0)
+        
+        result_data = output.getvalue()
+        logger.info(f"Image processing completed - Output size: {len(result_data)} bytes (reduction: {((len(image_data) - len(result_data)) / len(image_data) * 100):.1f}%)")
+        
+        return result_data
+    except Exception as e:
+        logger.error(f"Error processing image: {e}", exc_info=True)
+        logger.info("Returning original image data due to processing failure")
+        return image_data  # Return original if processing fails
+
+
+def generate_photo_filename(original_filename):
+    """Generate unique filename for uploaded photo"""
+    ext = original_filename.rsplit('.', 1)[1].lower() if '.' in original_filename else 'jpg'
+    unique_id = str(uuid.uuid4())
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    return f"{timestamp}_{unique_id}.{ext}"
 
 
 # Timezone configuration
@@ -225,16 +349,24 @@ class HumidityDatabase:
                          VALUES ('global_humidity_threshold', '30.0')
                          ''')
             
-            # Create memories table
+            # Create memories table with photo support
             conn.execute('''
                          CREATE TABLE IF NOT EXISTS memories
                          (
                              id INTEGER PRIMARY KEY AUTOINCREMENT,
                              user_name TEXT NOT NULL,
                              memory_text TEXT NOT NULL,
+                             photo_filename TEXT,
                              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                          )
                          ''')
+            
+            # Check if we need to add photo_filename column to existing table
+            cursor = conn.execute("PRAGMA table_info(memories)")
+            columns = [row[1] for row in cursor.fetchall()]
+            if 'photo_filename' not in columns:
+                conn.execute('ALTER TABLE memories ADD COLUMN photo_filename TEXT')
+                logger.info("Added photo_filename column to memories table")
             
             # Create indexes
             conn.execute('''
@@ -510,20 +642,27 @@ class HumidityDatabase:
             conn.commit()
             return deleted_count
 
-    def add_memory(self, user_name, memory_text):
-        """Add a new memory entry"""
+    def add_memory(self, user_name, memory_text, photo_filename=None):
+        """Add a new memory entry with optional photo"""
+        logger.info(f"Database add_memory called - User: {user_name}, Photo: {photo_filename}, Text length: {len(memory_text)}")
+        
         with self.get_connection() as conn:
-            conn.execute('''
-                INSERT INTO memories (user_name, memory_text)
-                VALUES (?, ?)
-            ''', (user_name, memory_text))
+            logger.info("Database connection established for memory insertion")
+            cursor = conn.execute('''
+                INSERT INTO memories (user_name, memory_text, photo_filename)
+                VALUES (?, ?, ?)
+            ''', (user_name, memory_text, photo_filename))
+            memory_id = cursor.lastrowid
+            logger.info(f"Memory inserted with ID: {memory_id}, committing transaction")
             conn.commit()
+            logger.info("Database transaction committed successfully")
+            return memory_id
 
     def get_latest_memory(self):
         """Get the most recent memory"""
         with self.get_connection() as conn:
             cursor = conn.execute('''
-                SELECT id, user_name, memory_text, created_at
+                SELECT id, user_name, memory_text, photo_filename, created_at
                 FROM memories
                 ORDER BY created_at DESC
                 LIMIT 1
@@ -531,11 +670,22 @@ class HumidityDatabase:
             result = cursor.fetchone()
             return dict(result) if result else None
 
+    def get_memory_by_id(self, memory_id):
+        """Get a specific memory by ID"""
+        with self.get_connection() as conn:
+            cursor = conn.execute('''
+                SELECT id, user_name, memory_text, photo_filename, created_at
+                FROM memories
+                WHERE id = ?
+            ''', (memory_id,))
+            result = cursor.fetchone()
+            return dict(result) if result else None
+
     def get_all_memories(self, limit=50):
         """Get all memories with optional limit"""
         with self.get_connection() as conn:
             cursor = conn.execute('''
-                SELECT id, user_name, memory_text, created_at
+                SELECT id, user_name, memory_text, photo_filename, created_at
                 FROM memories
                 ORDER BY created_at DESC
                 LIMIT ?
@@ -560,6 +710,43 @@ class HumidityDatabase:
                 'oldest_memory': None,
                 'newest_memory': None
             }
+
+    def delete_memory(self, memory_id):
+        """Delete a memory and its associated photo"""
+        with self.get_connection() as conn:
+            # Get the photo filename before deleting
+            cursor = conn.execute('''
+                SELECT photo_filename FROM memories WHERE id = ?
+            ''', (memory_id,))
+            result = cursor.fetchone()
+            
+            if not result:
+                return False, "Memory not found"
+            
+            photo_filename = result['photo_filename']
+            
+            # Delete the memory from database
+            cursor = conn.execute('''
+                DELETE FROM memories WHERE id = ?
+            ''', (memory_id,))
+            
+            if cursor.rowcount == 0:
+                return False, "Memory not found"
+            
+            conn.commit()
+            
+            # Delete the photo file if it exists
+            if photo_filename:
+                try:
+                    photo_path = os.path.join(CONFIG['upload_folder'], photo_filename)
+                    if os.path.exists(photo_path):
+                        os.remove(photo_path)
+                        logger.info(f"Deleted photo file: {photo_filename}")
+                except Exception as e:
+                    logger.error(f"Error deleting photo file {photo_filename}: {e}")
+                    # Don't fail the operation if photo deletion fails
+            
+            return True, "Memory deleted successfully"
 
 
 # Initialize database
@@ -949,33 +1136,210 @@ def get_memories():
 
 @app.route('/api/memories', methods=['POST'])
 def add_memory():
-    """Add a new memory"""
+    """Add a new memory with optional photo"""
+    start_time = time.time()
     try:
-        data = request.get_json()
+        logger.info("=== MEMORY ADDITION REQUEST STARTED ===")
+        logger.info(f"Request method: {request.method}")
+        logger.info(f"Content-Type: {request.content_type}")
+        logger.info(f"Content-Length: {request.content_length}")
+        logger.info(f"Files in request: {list(request.files.keys())}")
+        logger.info(f"Form fields: {list(request.form.keys())}")
         
-        if not data:
-            return jsonify({'error': 'No JSON data provided'}), 400
-        
-        user_name = data.get('user_name', '').strip()
-        memory_text = data.get('memory_text', '').strip()
+        # Handle multipart form data (for photo uploads)
+        if 'photo' in request.files and request.files['photo'].filename:
+            # Photo upload
+            logger.info("=== PHOTO UPLOAD BRANCH DETECTED ===")
+            photo_file = request.files['photo']
+            user_name = request.form.get('user_name', '').strip()
+            memory_text = request.form.get('memory_text', '').strip()
+            rotation = request.form.get('rotation')  # Optional rotation parameter
+            
+            # Parse rotation if provided
+            rotation_degrees = None
+            if rotation:
+                try:
+                    rotation_degrees = int(rotation)
+                    if rotation_degrees not in [0, 90, 180, 270]:
+                        logger.warning(f"Invalid rotation value: {rotation}, ignoring")
+                        rotation_degrees = None
+                except ValueError:
+                    logger.warning(f"Invalid rotation format: {rotation}, ignoring")
+                    rotation_degrees = None
+            
+            logger.info(f"Photo upload detected - User: {user_name}, Filename: {photo_file.filename}, Text length: {len(memory_text)}, Rotation: {rotation_degrees}")
+            
+            if not photo_file or photo_file.filename == '':
+                logger.warning("No photo file selected despite photo being in request")
+                return jsonify({'error': 'No photo file selected'}), 400
+            
+            if not allowed_file(photo_file.filename):
+                logger.warning(f"Invalid file type: {photo_file.filename}")
+                return jsonify({'error': 'Invalid file type. Allowed: PNG, JPG, JPEG, GIF, WEBP'}), 400
+                
+            logger.info(f"Photo file validation passed: {photo_file.filename}")
+                
+        else:
+            # Text-only memory (backward compatibility)
+            logger.info("=== TEXT-ONLY MEMORY BRANCH DETECTED ===")
+            data = request.get_json()
+            if not data:
+                logger.warning("No data provided for text-only memory")
+                return jsonify({'error': 'No data provided'}), 400
+            
+            user_name = data.get('user_name', '').strip()
+            memory_text = data.get('memory_text', '').strip()
+            photo_file = None
+            logger.info(f"Text-only memory - User: {user_name}, Text length: {len(memory_text)}")
         
         if not user_name or not memory_text:
+            logger.warning(f"Missing required fields - User: '{user_name}', Text: '{memory_text[:50] if memory_text else 'None'}'")
             return jsonify({'error': 'Both user_name and memory_text are required'}), 400
         
-        if len(memory_text) > 1000:  # Reasonable limit
+        if len(memory_text) > 1000:
+            logger.warning(f"Memory text too long: {len(memory_text)} characters")
             return jsonify({'error': 'Memory text too long (max 1000 characters)'}), 400
         
-        db.add_memory(user_name, memory_text)
+        photo_filename = None
         
-        logger.info(f"New memory added by {user_name}: {memory_text[:50]}...")
+        # Process photo if uploaded
+        if photo_file:
+            try:
+                photo_start_time = time.time()
+                logger.info("=== STARTING PHOTO PROCESSING ===")
+                logger.info(f"Photo file object: {type(photo_file)}")
+                logger.info(f"Photo filename: {photo_file.filename}")
+                logger.info(f"Photo content type: {getattr(photo_file, 'content_type', 'unknown')}")
+                
+                # Read photo data
+                read_start_time = time.time()
+                logger.info("Reading photo file data...")
+                photo_data = photo_file.read()
+                read_time = time.time() - read_start_time
+                logger.info(f"Photo data read successfully - Size: {len(photo_data)} bytes, Time: {read_time:.3f}s")
+                
+                # Validate photo data
+                if not photo_data:
+                    logger.error("Photo file appears to be empty")
+                    return jsonify({'error': 'Photo file is empty'}), 400
+                
+                # Resize photo
+                resize_start_time = time.time()
+                logger.info("Starting image resize process")
+                resized_photo = resize_image(photo_data, rotation=rotation_degrees)
+                resize_time = time.time() - resize_start_time
+                logger.info(f"Image resized successfully - New size: {len(resized_photo)} bytes, Time: {resize_time:.3f}s")
+                
+                # Generate unique filename
+                photo_filename = generate_photo_filename(photo_file.filename)
+                photo_path = os.path.join(CONFIG['upload_folder'], photo_filename)
+                logger.info(f"Generated photo filename: {photo_filename}, Path: {photo_path}")
+                
+                # Ensure upload directory exists
+                os.makedirs(CONFIG['upload_folder'], exist_ok=True)
+                logger.info(f"Upload directory verified: {CONFIG['upload_folder']}")
+                
+                # Save resized photo
+                save_start_time = time.time()
+                logger.info("Starting file write process")
+                with open(photo_path, 'wb') as f:
+                    f.write(resized_photo)
+                save_time = time.time() - save_start_time
+                logger.info(f"Photo file written successfully: {photo_filename}, Time: {save_time:.3f}s")
+                
+                # Verify file was saved
+                if os.path.exists(photo_path):
+                    file_size = os.path.getsize(photo_path)
+                    logger.info(f"Photo file verified on disk - Size: {file_size} bytes")
+                else:
+                    logger.error(f"Photo file not found after saving: {photo_path}")
+                    return jsonify({'error': 'Failed to save photo file'}), 500
+                
+                photo_total_time = time.time() - photo_start_time
+                logger.info(f"Total photo processing time: {photo_total_time:.3f}s (Read: {read_time:.3f}s, Resize: {resize_time:.3f}s, Save: {save_time:.3f}s)")
+                
+            except Exception as e:
+                logger.error(f"Error processing photo: {e}", exc_info=True)
+                return jsonify({'error': 'Failed to process photo'}), 500
+        
+        # Add memory to database
+        db_start_time = time.time()
+        logger.info("Starting database insertion")
+        memory_id = db.add_memory(user_name, memory_text, photo_filename)
+        db_time = time.time() - db_start_time
+        logger.info(f"Memory inserted into database successfully - ID: {memory_id}, Time: {db_time:.3f}s")
+        
+        # Get the created memory to return to client
+        created_memory = db.get_memory_by_id(memory_id)
+        
+        total_time = time.time() - start_time
+        logger.info(f"Memory addition completed successfully - User: {user_name}, ID: {memory_id}, Photo: {photo_filename}, Total time: {total_time:.3f}s, Text: {memory_text[:50]}...")
         
         return jsonify({
             'status': 'success',
-            'message': 'Memory added successfully'
+            'message': 'Memory added successfully',
+            'memory_id': memory_id,
+            'memory': created_memory
         })
         
     except Exception as e:
-        logger.error(f"Error adding memory: {e}")
+        total_time = time.time() - start_time
+        logger.error(f"Error adding memory after {total_time:.3f}s: {e}", exc_info=True)
+        
+        # If there was a photo file that was partially processed, try to clean it up
+        if 'photo_filename' in locals() and photo_filename:
+            try:
+                photo_path = os.path.join(CONFIG['upload_folder'], photo_filename)
+                if os.path.exists(photo_path):
+                    os.remove(photo_path)
+                    logger.info(f"Cleaned up partially processed photo: {photo_filename}")
+            except Exception as cleanup_error:
+                logger.error(f"Failed to cleanup photo file {photo_filename}: {cleanup_error}")
+        
+        return jsonify({'error': 'Internal server error'}), 500
+
+
+@app.route('/api/memories/<int:memory_id>', methods=['DELETE'])
+def delete_memory(memory_id):
+    """Delete a memory by ID"""
+    try:
+        success, message = db.delete_memory(memory_id)
+        
+        if success:
+            logger.info(f"Memory {memory_id} deleted successfully")
+            return jsonify({
+                'status': 'success',
+                'message': message
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'error': message
+            }), 404
+            
+    except Exception as e:
+        logger.error(f"Error deleting memory {memory_id}: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+
+@app.route('/api/memories/photos/<filename>')
+def serve_photo(filename):
+    """Serve memory photos"""
+    try:
+        # Validate filename to prevent directory traversal
+        secure_name = secure_filename(filename)
+        if secure_name != filename:
+            return jsonify({'error': 'Invalid filename'}), 400
+        
+        photo_path = os.path.join(CONFIG['upload_folder'], secure_name)
+        
+        if not os.path.exists(photo_path):
+            return jsonify({'error': 'Photo not found'}), 404
+        
+        return send_file(photo_path)
+        
+    except Exception as e:
+        logger.error(f"Error serving photo {filename}: {e}")
         return jsonify({'error': 'Internal server error'}), 500
 
 

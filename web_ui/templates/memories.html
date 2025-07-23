@@ -73,23 +73,6 @@
             background: #2980b9;
         }
         
-        .btn-write {
-            background: #e74c3c;
-            color: white;
-            padding: 10px 20px;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            transition: background 0.3s;
-        }
-        
-        .btn-write:hover {
-            background: #c0392b;
-        }
-        
         .memories-list {
             background: white;
             border-radius: 10px;
@@ -189,168 +172,12 @@
             <h1>📖 Garden Memory Book</h1>
             <div class="header-actions">
                 <a href="/" class="btn-home">🏠 Dashboard</a>
-                <button id="writeMemoryBtn" class="btn-write">✏️ Write Memory</button>
             </div>
         </div>
 
         <div class="memories-list" id="memoriesList">
             <div class="loading-memories">
                 Loading memories...
-            </div>
-        </div>
-    </div>
-
-    <!-- Memory Writing Modal -->
-    <div id="memoryModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2>✏️ Write Garden Memory</h2>
-                <span class="close-modal" id="closeMemoryModal">&times;</span>
-            </div>
-            <div class="modal-body">
-                <p>Share your observations, discoveries, or notes about your garden. These memories help track patterns and learnings over time.</p>
-                <form id="memoryForm">
-                    <div class="form-group">
-                        <label for="userNameInput">Your Name:</label>
-                        <input type="text" id="userNameInput" placeholder="Enter your name..." required>
-                        <small>Your name will be saved for future entries</small>
-                    </div>
-                    <div class="form-group">
-                        <label for="memoryTextInput">Memory:</label>
-                        <div class="memory-input-controls">
-                            <button type="button" id="rtlToggle" class="rtl-toggle" title="Toggle Hebrew/RTL text direction">
-                                <span id="rtlToggleText">א→ Hebrew</span>
-                            </button>
-                        </div>
-                        <textarea id="memoryTextInput" placeholder="Share your garden observation, discovery, or note..." rows="6" maxlength="1000" required></textarea>
-                        <div class="char-counter">
-                            <span id="charCount">0</span>/1000 characters
-                        </div>
-                        <div class="emoji-picker">
-                            <div class="emoji-category">
-                                <strong>🌱 Plants & Growth:</strong>
-                                <span class="emoji" data-emoji="🌱">🌱</span>
-                                <span class="emoji" data-emoji="🌿">🌿</span>
-                                <span class="emoji" data-emoji="🌾">🌾</span>
-                                <span class="emoji" data-emoji="🌳">🌳</span>
-                                <span class="emoji" data-emoji="🌲">🌲</span>
-                                <span class="emoji" data-emoji="🍃">🍃</span>
-                                <span class="emoji" data-emoji="🌵">🌵</span>
-                                <span class="emoji" data-emoji="🌴">🌴</span>
-                            </div>
-                            <div class="emoji-category">
-                                <strong>🌺 Flowers:</strong>
-                                <span class="emoji" data-emoji="🌺">🌺</span>
-                                <span class="emoji" data-emoji="🌻">🌻</span>
-                                <span class="emoji" data-emoji="🌷">🌷</span>
-                                <span class="emoji" data-emoji="🌹">🌹</span>
-                                <span class="emoji" data-emoji="🌸">🌸</span>
-                                <span class="emoji" data-emoji="💐">💐</span>
-                                <span class="emoji" data-emoji="🏵️">🏵️</span>
-                                <span class="emoji" data-emoji="🌼">🌼</span>
-                            </div>
-                            <div class="emoji-category">
-                                <strong>🍅 Vegetables & Fruits:</strong>
-                                <span class="emoji" data-emoji="🍅">🍅</span>
-                                <span class="emoji" data-emoji="🥕">🥕</span>
-                                <span class="emoji" data-emoji="🥬">🥬</span>
-                                <span class="emoji" data-emoji="🥒">🥒</span>
-                                <span class="emoji" data-emoji="🌶️">🌶️</span>
-                                <span class="emoji" data-emoji="🌽">🌽</span>
-                                <span class="emoji" data-emoji="🍆">🍆</span>
-                                <span class="emoji" data-emoji="🥔">🥔</span>
-                                <span class="emoji" data-emoji="🧄">🧄</span>
-                                <span class="emoji" data-emoji="🧅">🧅</span>
-                                <span class="emoji" data-emoji="🍓">🍓</span>
-                                <span class="emoji" data-emoji="🍇">🍇</span>
-                            </div>
-                            <div class="emoji-category">
-                                <strong>🌤️ Weather:</strong>
-                                <span class="emoji" data-emoji="☀️">☀️</span>
-                                <span class="emoji" data-emoji="🌤️">🌤️</span>
-                                <span class="emoji" data-emoji="⛅">⛅</span>
-                                <span class="emoji" data-emoji="🌦️">🌦️</span>
-                                <span class="emoji" data-emoji="🌧️">🌧️</span>
-                                <span class="emoji" data-emoji="☔">☔</span>
-                                <span class="emoji" data-emoji="⛈️">⛈️</span>
-                                <span class="emoji" data-emoji="❄️">❄️</span>
-                                <span class="emoji" data-emoji="🌪️">🌪️</span>
-                            </div>
-                            <div class="emoji-category">
-                                <strong>💧 Water & Care:</strong>
-                                <span class="emoji" data-emoji="💧">💧</span>
-                                <span class="emoji" data-emoji="🚿">🚿</span>
-                                <span class="emoji" data-emoji="🧽">🧽</span>
-                                <span class="emoji" data-emoji="🪣">🪣</span>
-                                <span class="emoji" data-emoji="🧴">🧴</span>
-                                <span class="emoji" data-emoji="🔧">🔧</span>
-                                <span class="emoji" data-emoji="🛠️">🛠️</span>
-                                <span class="emoji" data-emoji="✂️">✂️</span>
-                            </div>
-                            <div class="emoji-category">
-                                <strong>🐛 Garden Life:</strong>
-                                <span class="emoji" data-emoji="🐛">🐛</span>
-                                <span class="emoji" data-emoji="🐝">🐝</span>
-                                <span class="emoji" data-emoji="🦋">🦋</span>
-                                <span class="emoji" data-emoji="🐞">🐞</span>
-                                <span class="emoji" data-emoji="🐜">🐜</span>
-                                <span class="emoji" data-emoji="🕷️">🕷️</span>
-                                <span class="emoji" data-emoji="🐌">🐌</span>
-                                <span class="emoji" data-emoji="🪱">🪱</span>
-                            </div>
-                            <div class="emoji-category">
-                                <strong>📊 Measurements & Tools:</strong>
-                                <span class="emoji" data-emoji="📊">📊</span>
-                                <span class="emoji" data-emoji="📈">📈</span>
-                                <span class="emoji" data-emoji="📉">📉</span>
-                                <span class="emoji" data-emoji="📏">📏</span>
-                                <span class="emoji" data-emoji="🔍">🔍</span>
-                                <span class="emoji" data-emoji="📝">📝</span>
-                                <span class="emoji" data-emoji="📅">📅</span>
-                                <span class="emoji" data-emoji="🕒">🕒</span>
-                            </div>
-                            <div class="emoji-category">
-                                <strong>😊 Emotions & Actions:</strong>
-                                <span class="emoji" data-emoji="😊">😊</span>
-                                <span class="emoji" data-emoji="😄">😄</span>
-                                <span class="emoji" data-emoji="🎉">🎉</span>
-                                <span class="emoji" data-emoji="😰">😰</span>
-                                <span class="emoji" data-emoji="😮">😮</span>
-                                <span class="emoji" data-emoji="🤔">🤔</span>
-                                <span class="emoji" data-emoji="💪">💪</span>
-                                <span class="emoji" data-emoji="👍">👍</span>
-                                <span class="emoji" data-emoji="👎">👎</span>
-                                <span class="emoji" data-emoji="❤️">❤️</span>
-                            </div>
-                            <div class="emoji-category">
-                                <strong>🍽️ Harvest & Food:</strong>
-                                <span class="emoji" data-emoji="🍽️">🍽️</span>
-                                <span class="emoji" data-emoji="🥗">🥗</span>
-                                <span class="emoji" data-emoji="🍲">🍲</span>
-                                <span class="emoji" data-emoji="🧺">🧺</span>
-                                <span class="emoji" data-emoji="🎃">🎃</span>
-                                <span class="emoji" data-emoji="🥜">🥜</span>
-                                <span class="emoji" data-emoji="🌰">🌰</span>
-                            </div>
-                            <div class="emoji-category">
-                                <strong>👨‍🌾 People:</strong>
-                                <span class="emoji" data-emoji="👨‍🌾">👨‍🌾</span>
-                                <span class="emoji" data-emoji="👩‍🌾">👩‍🌾</span>
-                                <span class="emoji" data-emoji="👤">👤</span>
-                                <span class="emoji" data-emoji="👥">👥</span>
-                                <span class="emoji" data-emoji="👨">👨</span>
-                                <span class="emoji" data-emoji="👩">👩</span>
-                                <span class="emoji" data-emoji="👶">👶</span>
-                                <span class="emoji" data-emoji="👵">👵</span>
-                                <span class="emoji" data-emoji="👴">👴</span>
-                            </div>
-                        </div>
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button id="saveMemoryBtn" class="btn-primary">💾 Save Memory</button>
-                <button id="cancelMemoryBtn" class="btn-secondary">Cancel</button>
             </div>
         </div>
     </div>

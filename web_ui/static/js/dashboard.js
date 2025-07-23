@@ -4,17 +4,29 @@ class HumidityDashboard {
         this.refreshInterval = null;
         this.sensorConfigs = {};
         this.globalThreshold = 30.0;
+        this.selectedFile = null;
+        this.cameraStream = null;
+        this.currentRotation = 0; // Track current rotation in degrees
         this.setupMemoryUpdateListener();
         this.init();
     }
 
     async init() {
         this.setupEventListeners();
+        
+        // Load cached memory immediately for instant display
+        this.loadCachedMemory();
+        
+        // Load configuration and device/sensor data
         await this.loadSensorConfigs();
         await this.loadDevices();
         await this.loadSensors();
-        await this.loadData();
-        await this.loadLatestMemory();
+        
+        // Load fresh data in parallel
+        await Promise.all([
+            this.loadData(),
+            this.loadLatestMemory()
+        ]);
         
         // Set initial time range labels based on default selection (24h)
         const initialHours = document.getElementById('timeRange').value;
@@ -27,7 +39,7 @@ class HumidityDashboard {
         document.getElementById('refreshBtn').addEventListener('click', () => {
             this.loadSensorConfigs(); // Refresh sensor configs when manually refreshing
             this.loadData();
-            this.loadLatestMemory(); // Refresh memories too
+            this.loadLatestMemory(); // Refresh memories too (will use cache first)
         });
         document.getElementById('deviceSelect').addEventListener('change', () => {
             this.loadSensors();
@@ -64,6 +76,16 @@ class HumidityDashboard {
         
         // Save username when typing
         document.getElementById('userNameInput').addEventListener('input', () => this.saveUserName());
+        
+        // Photo functionality
+        document.getElementById('selectPhotoBtn').addEventListener('click', () => this.selectPhoto());
+        document.getElementById('removePhotoBtn').addEventListener('click', () => this.removePhoto());
+        document.getElementById('photoInput').addEventListener('change', (e) => this.handleFileSelect(e));
+        
+        // Photo rotation controls
+        document.getElementById('rotateLeftBtn').addEventListener('click', () => this.rotatePhoto(-90));
+        document.getElementById('rotateRightBtn').addEventListener('click', () => this.rotatePhoto(90));
+        document.getElementById('resetRotationBtn').addEventListener('click', () => this.resetRotation());
         
         // Close memory modal when clicking outside
         document.getElementById('memoryModal').addEventListener('click', (e) => {
@@ -415,22 +437,59 @@ class HumidityDashboard {
 
     // Memory functionality
     async loadLatestMemory() {
+        // First, try to load cached memory to avoid showing placeholder
+        this.loadCachedMemory();
+        
         try {
             const response = await fetch('/api/memories');
             const data = await response.json();
             
             if (data.status === 'success' && data.memories.length > 0) {
-                this.displayLatestMemory(data.memories[0]);
+                const latestMemory = data.memories[0];
+                this.displayLatestMemory(latestMemory);
+                // Cache the latest memory for future loads
+                this.cacheLatestMemory(latestMemory);
             } else {
-                this.displayNoMemory();
+                // Only show "no memory" if we don't have cached data
+                if (!this.hasCachedMemory()) {
+                    this.displayNoMemory();
+                }
             }
         } catch (error) {
             console.error('Error loading latest memory:', error);
-            this.displayNoMemory();
+            // Only show "no memory" if we don't have cached data
+            if (!this.hasCachedMemory()) {
+                this.displayNoMemory();
+            }
         }
     }
 
-    displayLatestMemory(memory) {
+    loadCachedMemory() {
+        const cachedMemory = localStorage.getItem('gardenLatestMemory');
+        if (cachedMemory) {
+            try {
+                const memory = JSON.parse(cachedMemory);
+                this.displayLatestMemory(memory, true); // true indicates this is cached data
+            } catch (error) {
+                console.error('Error parsing cached memory:', error);
+                localStorage.removeItem('gardenLatestMemory');
+            }
+        }
+    }
+
+    cacheLatestMemory(memory) {
+        try {
+            localStorage.setItem('gardenLatestMemory', JSON.stringify(memory));
+        } catch (error) {
+            console.error('Error caching memory:', error);
+        }
+    }
+
+    hasCachedMemory() {
+        return localStorage.getItem('gardenLatestMemory') !== null;
+    }
+
+    displayLatestMemory(memory, isCached = false) {
         const container = document.getElementById('latestMemory');
         
         // Parse timestamp as UTC and convert to local time
@@ -449,11 +508,27 @@ class HumidityDashboard {
         const hasHebrew = /[\u0590-\u05FF]/.test(memory.memory_text);
         const textDirectionClass = hasHebrew ? 'rtl-text' : 'ltr-text';
 
+        // Add a subtle indicator for cached data
+        const cacheIndicator = isCached ? '<span class="cache-indicator" title="Refreshing...">⟳</span>' : '';
+
+        // Photo HTML
+        const photoHtml = memory.photo_filename && !memory.photo_filename.startsWith('temp_') ? 
+            `<div class="memory-photo">
+                <img src="/api/memories/photos/${memory.photo_filename}" 
+                     alt="Memory photo" 
+                     onclick="dashboard.showPhotoModal('${memory.photo_filename}')">
+            </div>` : (memory.photo_filename && memory.photo_filename.startsWith('temp_') ? 
+                `<div class="memory-photo">
+                    <div class="photo-processing">📸 Photo processing...</div>
+                </div>` : '');
+
         container.innerHTML = `
             <div class="memory-content ${textDirectionClass}">${this.escapeHtml(memory.memory_text)}</div>
+            ${photoHtml}
             <div class="memory-meta">
                 <span class="memory-author">👤 ${this.escapeHtml(memory.user_name)}</span>
                 <span class="memory-date">🕒 ${formattedDate}</span>
+                ${cacheIndicator}
             </div>
         `;
     }
@@ -476,6 +551,9 @@ class HumidityDashboard {
         document.getElementById('memoryTextInput').focus();
         this.updateCharCounter();
         this.setupEmojiPicker();
+        
+        // Handle mobile keyboard resize
+        this.setupMobileKeyboardHandling();
     }
 
     closeMemoryModal() {
@@ -483,6 +561,11 @@ class HumidityDashboard {
         // Clear the memory text but keep the user name
         document.getElementById('memoryTextInput').value = '';
         this.updateCharCounter();
+        this.removePhoto();
+        this.stopCamera();
+        
+        // Clean up mobile keyboard handling
+        this.cleanupMobileKeyboardHandling();
     }
 
     updateCharCounter() {
@@ -543,24 +626,85 @@ class HumidityDashboard {
             saveBtn.disabled = true;
             saveBtn.textContent = 'Saving...';
             
+            console.log('Starting memory save process...');
+            console.log('User name:', userName);
+            console.log('Memory text length:', memoryText.length);
+            console.log('Selected file:', this.selectedFile);
+            
+            // Create FormData for file upload support
+            const formData = new FormData();
+            formData.append('user_name', userName);
+            formData.append('memory_text', memoryText);
+            
+            if (this.selectedFile) {
+                console.log('Adding photo to FormData:', this.selectedFile.name, 'Size:', this.selectedFile.size);
+                console.log('File type:', this.selectedFile.type);
+                
+                // Check file size (10MB limit)
+                if (this.selectedFile.size > 10 * 1024 * 1024) {
+                    throw new Error('File too large. Maximum size is 10MB.');
+                }
+                
+                formData.append('photo', this.selectedFile);
+                
+                // Add rotation parameter if there's any rotation applied
+                if (this.currentRotation !== 0) {
+                    formData.append('rotation', this.currentRotation.toString());
+                    console.log('Adding rotation:', this.currentRotation);
+                }
+            }
+            
+            console.log('Sending request to /api/memories...');
+            
             const response = await fetch('/api/memories', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    user_name: userName,
-                    memory_text: memoryText
-                })
+                body: formData  // Don't set Content-Type, browser will set it with boundary
             });
             
+            console.log('Response received:', response.status, response.statusText);
+            
+            if (!response.ok) {
+                console.error('Response not OK:', response.status, response.statusText);
+                const errorText = await response.text();
+                console.error('Error response body:', errorText);
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            console.log('Parsing response JSON...');
             const data = await response.json();
+            console.log('Response data:', data);
             
             if (data.status === 'success') {
                 this.saveUserName(); // Save the username for future use
                 this.closeMemoryModal();
                 this.showSuccess('Memory saved successfully! 🌱');
-                await this.loadLatestMemory(); // Reload to show the new memory
+                
+                // If server returned the memory data, display it immediately
+                if (data.memory) {
+                    this.displayLatestMemory(data.memory);
+                    // Cache the new memory
+                    this.cacheLatestMemory(data.memory);
+                } else {
+                    // Fallback: create a memory object for immediate display
+                    const newMemory = {
+                        id: data.memory_id,
+                        user_name: userName,
+                        memory_text: memoryText,
+                        photo_filename: this.selectedFile ? `temp_${Date.now()}_${this.selectedFile.name}` : null,
+                        created_at: new Date().toISOString()
+                    };
+                    
+                    // Immediately display the new memory (optimistic update)
+                    this.displayLatestMemory(newMemory);
+                    
+                    // Fetch the actual memory from server after a short delay to ensure it's available
+                    setTimeout(async () => {
+                        await this.loadLatestMemory(); // This will show the actual server data with correct photo path
+                    }, 500);
+                }
+                
+                // Clear any old cached memory since we have a new one
+                localStorage.removeItem('gardenLatestMemory');
                 
                 // Notify other tabs about the new memory
                 this.notifyMemoryUpdate();
@@ -569,7 +713,12 @@ class HumidityDashboard {
             }
         } catch (error) {
             console.error('Error saving memory:', error);
-            this.showError('Failed to save memory');
+            console.error('Error details:', {
+                name: error.name,
+                message: error.message,
+                stack: error.stack
+            });
+            this.showError('Failed to save memory: ' + error.message);
         } finally {
             // Re-enable save button
             const saveBtn = document.getElementById('saveMemoryBtn');
@@ -582,7 +731,8 @@ class HumidityDashboard {
         // Listen for memory updates from other tabs/windows
         window.addEventListener('storage', (e) => {
             if (e.key === 'memoryUpdated' && e.newValue) {
-                // A memory was updated in another tab, refresh our display
+                // A memory was updated in another tab, clear cache and refresh our display
+                localStorage.removeItem('gardenLatestMemory');
                 this.loadLatestMemory();
             }
         });
@@ -607,6 +757,87 @@ class HumidityDashboard {
                 this.insertEmoji(emoji.getAttribute('data-emoji'));
             });
         });
+        
+        // Add scroll chaining for better mobile experience
+        this.setupEmojiScrollChaining();
+    }
+    
+    setupEmojiScrollChaining() {
+        const emojiPicker = document.querySelector('.emoji-picker');
+        const modalBody = document.querySelector('#memoryModal .modal-body');
+        
+        if (!emojiPicker || !modalBody) return;
+        
+        // Handle mouse wheel events for desktop
+        emojiPicker.addEventListener('wheel', (e) => {
+            const atTop = emojiPicker.scrollTop === 0;
+            const atBottom = emojiPicker.scrollTop >= (emojiPicker.scrollHeight - emojiPicker.clientHeight);
+            
+            // Always prevent default first to stop immediate bubbling
+            e.preventDefault();
+            
+            // If at boundaries and trying to scroll beyond, manually scroll the modal
+            if ((e.deltaY < 0 && atTop) || (e.deltaY > 0 && atBottom)) {
+                modalBody.scrollTop += e.deltaY;
+            } else {
+                // Scroll within the emoji picker
+                emojiPicker.scrollTop += e.deltaY;
+            }
+        });
+        
+        // Handle touch events for mobile with better logic
+        let touchStartY = 0;
+        let touchStartScrollTop = 0;
+        let isScrollingEmoji = false;
+        
+        emojiPicker.addEventListener('touchstart', (e) => {
+            touchStartY = e.touches[0].clientY;
+            touchStartScrollTop = emojiPicker.scrollTop;
+            isScrollingEmoji = true; // User started touch in emoji area
+        }, { passive: true });
+        
+        emojiPicker.addEventListener('touchmove', (e) => {
+            if (!isScrollingEmoji) return;
+            
+            const touchY = e.touches[0].clientY;
+            const touchDeltaY = touchStartY - touchY;
+            const currentScrollTop = emojiPicker.scrollTop;
+            
+            const atTop = currentScrollTop <= 0;
+            const atBottom = currentScrollTop >= (emojiPicker.scrollHeight - emojiPicker.clientHeight - 1);
+            
+            // Always prevent default to stop dual scrolling
+            e.preventDefault();
+            e.stopPropagation();
+            
+            // Reduce sensitivity by using a smaller multiplier
+            const scrollSensitivity = 0.1; // Much lower sensitivity
+            const modalScrollSensitivity = 0.1; // Match emoji scroll sensitivity for consistent feel
+            
+            // If at boundaries and trying to scroll beyond, scroll the modal instead
+            if ((touchDeltaY < 0 && atTop) || (touchDeltaY > 0 && atBottom)) {
+                modalBody.scrollTop += touchDeltaY * modalScrollSensitivity;
+            } else {
+                // Scroll within the emoji picker with reduced sensitivity
+                emojiPicker.scrollTop += touchDeltaY * scrollSensitivity;
+            }
+        }, { passive: false }); // passive: false to allow preventDefault
+        
+        emojiPicker.addEventListener('touchend', () => {
+            isScrollingEmoji = false;
+        }, { passive: true });
+        
+        // Reset flag if touch leaves the emoji area
+        emojiPicker.addEventListener('touchleave', () => {
+            isScrollingEmoji = false;
+        }, { passive: true });
+    }
+    
+    isMobileDevice() {
+        // Check for touch capability and screen size
+        const hasTouchScreen = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+        const isSmallScreen = window.innerWidth <= 768;
+        return hasTouchScreen || isSmallScreen;
     }
 
     insertEmoji(emojiChar) {
@@ -643,6 +874,7 @@ class HumidityDashboard {
             textarea.classList.add('ltr-text');
             toggle.classList.remove('active');
             toggleText.textContent = 'א→ Hebrew';
+            textarea.placeholder = 'Share your garden observation, discovery, or note...';
             localStorage.setItem('gardenMemoryRTL', 'false');
         } else {
             // Switch to RTL
@@ -650,6 +882,7 @@ class HumidityDashboard {
             textarea.classList.add('rtl-text');
             toggle.classList.add('active');
             toggleText.textContent = '←A English';
+            textarea.placeholder = 'שתפ/י את התצפית, הגילוי או הערה על הגינה שלך...';
             localStorage.setItem('gardenMemoryRTL', 'true');
         }
         
@@ -667,16 +900,283 @@ class HumidityDashboard {
             textarea.classList.remove('ltr-text');
             toggle.classList.add('active');
             toggleText.textContent = '←A English';
+            textarea.placeholder = 'שתפ/י את התצפית, הגילוי או הערה על הגינה שלך...';
         } else {
             textarea.classList.add('ltr-text');
             textarea.classList.remove('rtl-text');
             toggle.classList.remove('active');
             toggleText.textContent = 'א→ Hebrew';
+            textarea.placeholder = 'Share your garden observation, discovery, or note...';
         }
     }
 
     getTextDirection() {
         return localStorage.getItem('gardenMemoryRTL') === 'true' ? 'rtl' : 'ltr';
+    }
+
+    // Mobile keyboard handling for better modal behavior
+    setupMobileKeyboardHandling() {
+        if (!this.isMobileDevice()) return;
+        
+        // Store original viewport height
+        this.originalViewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+        
+        // Set up viewport change listeners
+        if (window.visualViewport) {
+            this.handleViewportChange = this.handleViewportChange.bind(this);
+            window.visualViewport.addEventListener('resize', this.handleViewportChange);
+        } else {
+            // Fallback for older browsers
+            this.handleWindowResize = this.handleWindowResize.bind(this);
+            window.addEventListener('resize', this.handleWindowResize);
+        }
+    }
+    
+    cleanupMobileKeyboardHandling() {
+        if (!this.isMobileDevice()) return;
+        
+        // Remove viewport change listeners
+        if (window.visualViewport && this.handleViewportChange) {
+            window.visualViewport.removeEventListener('resize', this.handleViewportChange);
+        } else if (this.handleWindowResize) {
+            window.removeEventListener('resize', this.handleWindowResize);
+        }
+        
+        // Reset any applied styles
+        const modal = document.getElementById('memoryModal');
+        const modalContent = modal ? modal.querySelector('.modal-content') : null;
+        const modalBody = modal ? modal.querySelector('.modal-body') : null;
+        
+        if (modalContent) {
+            modalContent.style.maxHeight = '';
+            modalContent.style.marginTop = '';
+            modalContent.style.marginBottom = '';
+        }
+        
+        if (modalBody) {
+            modalBody.style.maxHeight = '';
+        }
+    }
+    
+    handleViewportChange() {
+        if (!window.visualViewport) return;
+        
+        const currentHeight = window.visualViewport.height;
+        const heightDifference = this.originalViewportHeight - currentHeight;
+        
+        // If keyboard is open (height reduced significantly)
+        if (heightDifference > 150) {
+            this.adjustModalForKeyboard(currentHeight);
+        } else {
+            this.resetModalSize();
+        }
+    }
+    
+    handleWindowResize() {
+        const currentHeight = window.innerHeight;
+        const heightDifference = this.originalViewportHeight - currentHeight;
+        
+        // If keyboard is open (height reduced significantly)
+        if (heightDifference > 150) {
+            this.adjustModalForKeyboard(currentHeight);
+        } else {
+            this.resetModalSize();
+        }
+    }
+    
+    adjustModalForKeyboard(availableHeight) {
+        const modal = document.getElementById('memoryModal');
+        const modalContent = modal ? modal.querySelector('.modal-content') : null;
+        const modalBody = modal ? modal.querySelector('.modal-body') : null;
+        
+        if (!modalContent || !modalBody) return;
+        
+        // Calculate available space for modal
+        const maxModalHeight = Math.max(availableHeight - 40, 300); // Minimum 300px
+        const headerFooterHeight = 140; // Approximate height of header + footer
+        const maxBodyHeight = maxModalHeight - headerFooterHeight;
+        
+        // Apply dynamic sizing
+        modalContent.style.maxHeight = `${maxModalHeight}px`
+        modalContent.style.marginTop = '20px';
+        modalContent.style.marginBottom = '20px';
+        modalBody.style.maxHeight = `${Math.max(maxBodyHeight, 200)}px`;
+        
+        // Ensure the active input stays visible
+        this.ensureInputVisible();
+    }
+    
+    resetModalSize() {
+        const modal = document.getElementById('memoryModal');
+        const modalContent = modal ? modal.querySelector('.modal-content') : null;
+        const modalBody = modal ? modal.querySelector('.modal-body') : null;
+        
+        if (!modalContent || !modalBody) return;
+        
+        // Reset to CSS defaults
+        modalContent.style.maxHeight = '';
+        modalContent.style.marginTop = '';
+        modalContent.style.marginBottom = '';
+        modalBody.style.maxHeight = '';
+    }
+    
+    ensureInputVisible() {
+        // Find the currently focused input/textarea
+        const activeElement = document.activeElement;
+        if (activeElement && (activeElement.tagName === 'TEXTAREA' || activeElement.tagName === 'INPUT')) {
+            // Small delay to let the keyboard animation finish
+            setTimeout(() => {
+                activeElement.scrollIntoView({ 
+                    behavior: 'smooth', 
+                    block: 'center',
+                    inline: 'nearest' 
+                });
+            }, 150);
+        }
+    }
+
+    // Photo functionality methods
+    selectPhoto() {
+        document.getElementById('photoInput').click();
+    }
+
+    handleFileSelect(event) {
+        const file = event.target.files[0];
+        if (file) {
+            // Validate file type
+            const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp'];
+            if (!allowedTypes.includes(file.type)) {
+                this.showError('Invalid file type. Please select PNG, JPG, JPEG, GIF, or WEBP.');
+                return;
+            }
+            
+            // Validate file size (10MB)
+            if (file.size > 10 * 1024 * 1024) {
+                this.showError('File too large. Maximum size is 10MB.');
+                return;
+            }
+            
+            this.selectedFile = file;
+            this.showPhotoPreview(file);
+        }
+    }
+
+    showPhotoPreview(file) {
+        const preview = document.getElementById('photoPreview');
+        const previewImage = document.getElementById('previewImage');
+        const photoName = document.getElementById('photoName');
+        const photoSize = document.getElementById('photoSize');
+        const removeBtn = document.getElementById('removePhotoBtn');
+        const rotationControls = document.getElementById('photoRotationControls');
+        
+        // Create object URL for preview
+        const objectUrl = URL.createObjectURL(file);
+        previewImage.src = objectUrl;
+        photoName.textContent = file.name;
+        photoSize.textContent = this.formatFileSize(file.size);
+        
+        preview.style.display = 'block';
+        removeBtn.style.display = 'inline-flex';
+        rotationControls.style.display = 'block';
+        
+        // Reset rotation
+        this.currentRotation = 0;
+        this.updatePhotoRotation();
+        
+        // Clean up previous object URL
+        previewImage.onload = () => {
+            if (this.previousObjectUrl) {
+                URL.revokeObjectURL(this.previousObjectUrl);
+            }
+            this.previousObjectUrl = objectUrl;
+        };
+    }
+
+    removePhoto() {
+        this.selectedFile = null;
+        this.currentRotation = 0;
+        document.getElementById('photoPreview').style.display = 'none';
+        document.getElementById('removePhotoBtn').style.display = 'none';
+        document.getElementById('photoRotationControls').style.display = 'none';
+        document.getElementById('photoInput').value = '';
+        
+        // Clean up object URL
+        if (this.previousObjectUrl) {
+            URL.revokeObjectURL(this.previousObjectUrl);
+            this.previousObjectUrl = null;
+        }
+        
+        this.stopCamera();
+    }
+
+    formatFileSize(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    rotatePhoto(degrees) {
+        this.currentRotation = (this.currentRotation + degrees) % 360;
+        if (this.currentRotation < 0) {
+            this.currentRotation += 360;
+        }
+        this.updatePhotoRotation();
+    }
+
+    resetRotation() {
+        this.currentRotation = 0;
+        this.updatePhotoRotation();
+    }
+
+    updatePhotoRotation() {
+        const previewImage = document.getElementById('previewImage');
+        const rotationDisplay = document.getElementById('rotationDisplay');
+        
+        // Update rotation display
+        rotationDisplay.textContent = `${this.currentRotation}°`;
+        
+        // Remove all rotation classes
+        previewImage.className = previewImage.className.replace(/\brotate-\d+\b/g, '');
+        
+        // Add appropriate rotation class
+        if (this.currentRotation !== 0) {
+            previewImage.classList.add(`rotate-${this.currentRotation}`);
+        }
+    }
+
+    showPhotoModal(filename) {
+        // Create photo modal if it doesn't exist
+        let modal = document.getElementById('photoModal');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'photoModal';
+            modal.className = 'photo-modal';
+            modal.innerHTML = `
+                <span class="photo-modal-close">&times;</span>
+                <div class="photo-modal-content">
+                    <img src="/api/memories/photos/${filename}" alt="Memory photo">
+                </div>
+            `;
+            document.body.appendChild(modal);
+            
+            // Add click handlers
+            modal.querySelector('.photo-modal-close').onclick = () => {
+                modal.style.display = 'none';
+            };
+            
+            modal.onclick = (e) => {
+                if (e.target === modal) {
+                    modal.style.display = 'none';
+                }
+            };
+        } else {
+            // Update image source
+            modal.querySelector('img').src = `/api/memories/photos/${filename}`;
+        }
+        
+        modal.style.display = 'block';
     }
 
     showSuccess(message) {
@@ -1335,6 +1835,31 @@ style.textContent = `
     .alert-status.below-threshold {
         background: rgba(231, 76, 60, 0.2);
         border: 1px solid #e74c3c;
+    }
+    
+    /* Cache indicator for memories */
+    .cache-indicator {
+        color: #95a5a6;
+        font-size: 12px;
+        margin-left: 8px;
+        opacity: 0.7;
+        animation: spin 2s linear infinite;
+    }
+    
+    @keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+    
+    /* Photo processing indicator */
+    .photo-processing {
+        background: #f8f9fa;
+        border: 2px dashed #bdc3c7;
+        border-radius: 8px;
+        padding: 20px;
+        text-align: center;
+        color: #7f8c8d;
+        font-style: italic;
     }
 `;
 document.head.appendChild(style);
