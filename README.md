@@ -12,11 +12,28 @@ Optimal soil moisture management is essential for healthy plant growth and effic
 
 ## System Architecture
 
-The system implements a three-tier architecture comprising sensor nodes, data processing server, and user interface:
+The system follows a tiered architecture with three main components that communicate with each other:
 
-- **ESP32 Microcontrollers**: Each device supports multiple capacitive soil moisture sensors, allowing for detailed monitoring of different garden zones.
-- **Python Flask Server**: A lightweight server collects data from ESP32 devices, stores it in a SQLite database, and serves a web-based dashboard.
-- **Responsive Web Dashboard**: A user-friendly interface visualizes soil moisture trends, enabling gardeners to make informed decisions.
+1. **ESP32 Microcontroller Layer**:
+   - Each ESP32 device can connect up to 3 soil moisture sensors
+   - Collects analog readings from sensors and converts them to digital values
+   - Sends structured JSON payload data to the server via HTTP protocol
+   - Operates on a configurable measurement interval
+
+2. **Python Flask Server Layer**:
+   - Acts as the central data processing hub
+   - Exposes API endpoints to receive sensor data from ESP32 devices
+   - Stores all measurements in a SQLite database (humidity.db)
+   - Manages memory entries with a dedicated memories table
+   - Serves the web dashboard and processes browser requests
+   - Implements data retention and management policies
+
+3. **Web Browser Interface Layer**:
+   - Provides dashboard visualization of current and historical humidity data
+   - Offers the Memory Book interface for collaborative garden journaling
+   - Communicates with the server via HTTP requests
+   - Receives both JSON data (for charts) and HTML (for page rendering)
+   - Implements responsive design for cross-device compatibility
 
 ## Features
 
@@ -24,29 +41,11 @@ The system implements a three-tier architecture comprising sensor nodes, data pr
 - **Real-Time Monitoring**: Continuous data collection with adjustable intervals.
 - **Data Storage**: Historical readings are stored in a SQLite database.
 - **Interactive Dashboard**: Visualize trends, filter data by device or sensor, and view multiple sensors on the same chart.
-- **Garden Memory Book**: A collaborative journaling system for tracking observations, discoveries, and gardening notes with emoji support.
+- **Alert System**: Threshold-based notifications with customizable high/low humidity limits for each sensor individually, including optional Telegram bot integration.
+- **Garden Memory Book**: A collaborative journaling system for tracking observations, discoveries, and gardening notes with emoji support and image attachments.
 - **Progressive Web App (PWA)**: Mobile-responsive dashboard with offline capability for cross-platform access.
 - **Automated Data Management**: Configurable data retention policies with automatic cleanup routines.
 - **Multi-Language Support**: Hebrew/RTL text support for international users.
-
-## System Architecture
-
-```
-┌─────────────────┐      HTTP      ┌──────────────┐      HTTP      ┌─────────────┐
-│  ESP32 with     │ ───────────────▶ Python Flask ◀────────────── │ Web Browser │
-│ Multiple Sensors│  JSON Payload  │    Server    │  JSON/HTML     │  Dashboard  │
-│ (3 sensors max) │                │   + Memory   │                │ + Memory    │
-└─────────────────┘                │     API      │                │   Book      │
-                                    └──────────────┘                └─────────────┘
-                                          │
-                                          │ SQLite
-                                          ▼
-                                    ┌──────────────┐
-                                    │  humidity.db │
-                                    │ + memories   │
-                                    │   table      │
-                                    └──────────────┘
-```
 
 ## Implementation Details
 
@@ -70,12 +69,10 @@ The Garden Memory Book is a collaborative journaling feature that enables family
 
 - **Collaborative Journaling**: Multiple family members can contribute memories and observations
 - **Rich Text Support**: Full emoji support with an organized emoji picker featuring 90+ garden-related emojis
+- **Image Attachments**: Support for uploading and viewing garden photos alongside text entries
 - **Persistent Storage**: All memories are stored in the database and persist across sessions
 - **Multi-Language Support**: Hebrew/RTL text support with automatic text direction detection
 - **Real-Time Sync**: Cross-tab communication ensures all open instances stay synchronized
-- **Dual Interface**: 
-  - **Dashboard Memory Card**: Quick view of the latest memory with easy access to write new ones
-  - **Dedicated Memory Book**: Full browsing experience with all historical memories
 
 #### Use Cases
 
@@ -187,26 +184,20 @@ CONFIG = {
 - ✅ Emoji support with organized picker (90+ garden-related emojis)
 - ✅ Hebrew/RTL text support with automatic detection
 - ✅ Cross-tab synchronization for real-time updates
-- ✅ Dual memory interface (dashboard card + dedicated book)
+- ✅ Image support for garden memories
+- ✅ Alert system for threshold-based notifications
 
 ### Future Enhancements
 - Implementation of authentication and authorization mechanisms
-- Alert system for threshold-based notifications
 - Support for additional sensor types (temperature, light intensity, pH)
 - Mobile application development for push notifications
 - Integration with automated irrigation control systems
 - Memory search and filtering capabilities
-- Photo attachments for garden memories
 - Seasonal memory organization and tagging
 
 ## License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
-
-## Technical Support
-
-- Flask Framework: Official documentation and community support
-- ESP32 Platform: Comprehensive documentation and developer resources
 
 ## Author
 
