@@ -1399,16 +1399,34 @@ class HumidityDashboard {
         
         let datasets = [];
         
+        // Get current time range for label formatting
+        const hours = parseInt(document.getElementById('timeRange').value);
+        const isWeekView = hours >= 168 && hours < 720; // 168 hours = 1 week, 720 hours = 1 month
+        const isMonthView = hours >= 720; // 720 hours = 1 month
+        
         if (selectedSensor || sensorKeys.length === 1) {
             // Single sensor view - use all readings
-            const labels = sortedReadings.map(r => {
-                const date = new Date(r.created_at);
-                return date.toLocaleTimeString('en-GB', { 
-                    hour: '2-digit',
-                    minute: '2-digit'
+            let labels, humidityData;
+            
+            if (isWeekView || isMonthView) {
+                // For week and month views, we'll use time-based x-axis
+                // Keep the original timestamps for proper time scale
+                labels = sortedReadings.map(r => new Date(r.created_at));
+                humidityData = sortedReadings.map(r => ({
+                    x: new Date(r.created_at),
+                    y: r.humidity_percent
+                }));
+            } else {
+                // For shorter periods, use formatted time labels
+                labels = sortedReadings.map(r => {
+                    const date = new Date(r.created_at);
+                    return date.toLocaleTimeString('en-GB', { 
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    });
                 });
-            });
-            const humidityData = sortedReadings.map(r => r.humidity_percent);
+                humidityData = sortedReadings.map(r => r.humidity_percent);
+            }
             
             // Use custom name if available
             let sensorName = selectedSensor || sensorKeys[0] || 'Humidity';
@@ -1434,30 +1452,50 @@ class HumidityDashboard {
             
             this.chart = new Chart(ctx, {
                 type: 'line',
-                data: { labels, datasets },
-                options: this.getChartOptions(isSampled)
+                data: { labels: isWeekView || isMonthView ? undefined : labels, datasets },
+                options: this.getChartOptions(isSampled, isWeekView, isMonthView)
             });
         } else {
             // Multiple sensors view - create dataset for each sensor
             // Find common time points or use all unique times
             const allTimes = [...new Set(sortedReadings.map(r => r.created_at))].sort();
-            const labels = allTimes.map(time => {
-                const date = new Date(time);
-                return date.toLocaleTimeString('en-GB', { 
-                    hour: '2-digit',
-                    minute: '2-digit'
+            let labels;
+            
+            if (isWeekView || isMonthView) {
+                // For week and month views, use actual timestamps
+                labels = allTimes.map(time => new Date(time));
+            } else {
+                // For shorter periods, use formatted time labels
+                labels = allTimes.map(time => {
+                    const date = new Date(time);
+                    return date.toLocaleTimeString('en-GB', { 
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    });
                 });
-            });
+            }
             
             sensorKeys.forEach((sensorKey, index) => {
                 const sensorReadings = sensorGroups[sensorKey];
                 const color = colors[index % colors.length];
                 
-                // Map sensor readings to all time points
-                const sensorData = allTimes.map(time => {
-                    const reading = sensorReadings.find(r => r.created_at === time);
-                    return reading ? reading.humidity_percent : null;
-                });
+                let sensorData;
+                if (isWeekView || isMonthView) {
+                    // For time-based charts, create x,y data points
+                    sensorData = allTimes.map(time => {
+                        const reading = sensorReadings.find(r => r.created_at === time);
+                        return reading ? {
+                            x: new Date(time),
+                            y: reading.humidity_percent
+                        } : null;
+                    }).filter(point => point !== null);
+                } else {
+                    // For regular charts, use simple array
+                    sensorData = allTimes.map(time => {
+                        const reading = sensorReadings.find(r => r.created_at === time);
+                        return reading ? reading.humidity_percent : null;
+                    });
+                }
                 
                 // Use custom name if available
                 let displayName = sensorKey;
@@ -1485,13 +1523,84 @@ class HumidityDashboard {
             
             this.chart = new Chart(ctx, {
                 type: 'line',
-                data: { labels, datasets },
-                options: this.getChartOptions(isSampled)
+                data: { labels: isWeekView || isMonthView ? undefined : labels, datasets },
+                options: this.getChartOptions(isSampled, isWeekView, isMonthView)
             });
         }
     }
 
-    getChartOptions(isSampled = false) {
+    getChartOptions(isSampled = false, isWeekView = false, isMonthView = false) {
+        let xAxisConfig = {
+            title: {
+                display: true,
+                text: 'Time'
+            },
+            grid: {
+                color: 'rgba(0,0,0,0.1)'
+            },
+            ticks: {
+                maxTicksLimit: 12,
+                autoSkip: true,
+                autoSkipPadding: 10
+            }
+        };
+
+        if (isWeekView || isMonthView) {
+            // Use time scale for week and month views
+            xAxisConfig = {
+                type: 'time',
+                title: {
+                    display: true,
+                    text: 'Date'
+                },
+                grid: {
+                    color: 'rgba(0,0,0,0.1)'
+                },
+                time: {
+                    tooltipFormat: isMonthView ? 'MMM DD, YYYY' : 'ddd MMM DD, HH:mm',
+                    displayFormats: {
+                        hour: 'HH:mm',
+                        day: isWeekView ? 'ddd DD' : 'MMM DD',
+                        week: 'MMM DD',
+                        month: 'MMM YYYY'
+                    }
+                },
+                ticks: {
+                    source: 'auto',
+                    autoSkip: true,
+                    maxTicksLimit: isWeekView ? 7 : 15,
+                    // Force ticks to align with meaningful boundaries
+                    callback: function(value, index, ticks) {
+                        const date = new Date(value);
+                        if (isWeekView) {
+                            // For week view, show ticks at midnight of each day
+                            return date.toLocaleDateString('en-GB', { 
+                                weekday: 'short',
+                                day: 'numeric'
+                            });
+                        } else if (isMonthView) {
+                            // For month view, show dates every few days
+                            return date.toLocaleDateString('en-GB', { 
+                                day: 'numeric',
+                                month: 'short'
+                            });
+                        }
+                        return value;
+                    }
+                }
+            };
+
+            // For week view, configure to show daily ticks
+            if (isWeekView) {
+                xAxisConfig.time.unit = 'day';
+                xAxisConfig.time.stepSize = 1;
+            } else if (isMonthView) {
+                // For month view, let Chart.js auto-determine but prefer every 2-3 days
+                xAxisConfig.time.unit = 'day';
+                xAxisConfig.time.stepSize = 2;
+            }
+        }
+        
         const baseOptions = {
             responsive: true,
             maintainAspectRatio: false,
@@ -1507,15 +1616,7 @@ class HumidityDashboard {
                         color: 'rgba(0,0,0,0.1)'
                     }
                 },
-                x: {
-                    title: {
-                        display: true,
-                        text: 'Time'
-                    },
-                    grid: {
-                        color: 'rgba(0,0,0,0.1)'
-                    }
-                }
+                x: xAxisConfig
             },
             plugins: {
                 legend: {
@@ -1619,6 +1720,8 @@ class HumidityDashboard {
                 timeText = '(24h)';
             } else if (hours == 168) {
                 timeText = '(1w)';
+            } else if (hours == 720) {
+                timeText = '(1m)';
             } else {
                 timeText = `(${hours}h)`;
             }

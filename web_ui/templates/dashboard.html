@@ -24,6 +24,7 @@
     
     <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 </head>
 <body>
     <div class="container">
@@ -45,6 +46,7 @@
                 <option value="6">Last 6 Hours</option>
                 <option value="24" selected>Last 24 Hours</option>
                 <option value="168">Last Week</option>
+                <option value="720">Last Month</option>
             </select>
             <button id="refreshBtn">Refresh</button>
         </div>
