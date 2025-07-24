@@ -1145,7 +1145,7 @@ def add_memory():
         logger.info(f"Content-Length: {request.content_length}")
         logger.info(f"Files in request: {list(request.files.keys())}")
         logger.info(f"Form fields: {list(request.form.keys())}")
-        
+
         # Handle multipart form data (for photo uploads)
         if 'photo' in request.files and request.files['photo'].filename:
             # Photo upload
@@ -1154,7 +1154,7 @@ def add_memory():
             user_name = request.form.get('user_name', '').strip()
             memory_text = request.form.get('memory_text', '').strip()
             rotation = request.form.get('rotation')  # Optional rotation parameter
-            
+
             # Parse rotation if provided
             rotation_degrees = None
             if rotation:
@@ -1166,31 +1166,36 @@ def add_memory():
                 except ValueError:
                     logger.warning(f"Invalid rotation format: {rotation}, ignoring")
                     rotation_degrees = None
-            
+
             logger.info(f"Photo upload detected - User: {user_name}, Filename: {photo_file.filename}, Text length: {len(memory_text)}, Rotation: {rotation_degrees}")
-            
+
             if not photo_file or photo_file.filename == '':
                 logger.warning("No photo file selected despite photo being in request")
                 return jsonify({'error': 'No photo file selected'}), 400
-            
+
             if not allowed_file(photo_file.filename):
                 logger.warning(f"Invalid file type: {photo_file.filename}")
                 return jsonify({'error': 'Invalid file type. Allowed: PNG, JPG, JPEG, GIF, WEBP'}), 400
-                
+
             logger.info(f"Photo file validation passed: {photo_file.filename}")
-                
+
         else:
-            # Text-only memory (backward compatibility)
+            # Text-only memory (support both form and JSON)
             logger.info("=== TEXT-ONLY MEMORY BRANCH DETECTED ===")
-            data = request.get_json()
-            if not data:
-                logger.warning("No data provided for text-only memory")
-                return jsonify({'error': 'No data provided'}), 400
-            
-            user_name = data.get('user_name', '').strip()
-            memory_text = data.get('memory_text', '').strip()
-            photo_file = None
-            logger.info(f"Text-only memory - User: {user_name}, Text length: {len(memory_text)}")
+            if request.content_type and request.content_type.startswith('multipart/form-data'):
+                user_name = request.form.get('user_name', '').strip()
+                memory_text = request.form.get('memory_text', '').strip()
+                photo_file = None
+                logger.info(f"Text-only memory (form) - User: {user_name}, Text length: {len(memory_text)}")
+            else:
+                data = request.get_json(silent=True)
+                if not data:
+                    logger.warning("No data provided for text-only memory (JSON branch)")
+                    return jsonify({'error': 'No data provided'}), 400
+                user_name = data.get('user_name', '').strip()
+                memory_text = data.get('memory_text', '').strip()
+                photo_file = None
+                logger.info(f"Text-only memory (json) - User: {user_name}, Text length: {len(memory_text)}")
         
         if not user_name or not memory_text:
             logger.warning(f"Missing required fields - User: '{user_name}', Text: '{memory_text[:50] if memory_text else 'None'}'")
