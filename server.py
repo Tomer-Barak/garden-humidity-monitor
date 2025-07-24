@@ -50,6 +50,22 @@ logger.handlers.clear()
 logger.addHandler(rotating_handler)
 logger.addHandler(stream_handler)
 
+# Create a filter for routine request logging
+class RequestFilter(logging.Filter):
+    def filter(self, record):
+        # Skip routine request/response logs for /humidity endpoint
+        if "Request: POST /humidity" in record.getMessage() or \
+           "Content-Length:" in record.getMessage() or \
+           "Content-Type:" in record.getMessage() or \
+           "Response: 200 for POST /humidity" in record.getMessage():
+            return False
+        return True
+
+# Apply the filter to both handlers
+request_filter = RequestFilter()
+rotating_handler.addFilter(request_filter)
+stream_handler.addFilter(request_filter)
+
 # Flask app
 app = Flask(__name__, 
             static_folder='web_ui/static',
@@ -65,14 +81,17 @@ os.makedirs(CONFIG['upload_folder'], exist_ok=True)
 @app.before_request
 def log_request_info():
     """Log detailed request information"""
-    logger.info(f"Request: {request.method} {request.path} from {request.remote_addr}")
-    if request.content_length:
-        logger.info(f"Content-Length: {request.content_length} bytes")
-        # Check if content length exceeds max file size
-        if request.content_length > CONFIG['max_file_size']:
-            logger.warning(f"Request content length ({request.content_length}) exceeds max file size ({CONFIG['max_file_size']})")
-    if request.content_type:
-        logger.info(f"Content-Type: {request.content_type}")
+    # Only log detailed info for non-humidity endpoints or if there's a problem
+    is_humidity_endpoint = request.path == '/humidity' and request.method == 'POST'
+    
+    if not is_humidity_endpoint:
+        logger.info(f"Request: {request.method} {request.path} from {request.remote_addr}")
+        if request.content_length:
+            logger.info(f"Content-Length: {request.content_length} bytes")
+    
+    # Always log file size warnings
+    if request.content_length and request.content_length > CONFIG['max_file_size']:
+        logger.warning(f"Request content length ({request.content_length}) exceeds max file size ({CONFIG['max_file_size']})")
 
 @app.errorhandler(413)
 def handle_file_too_large(error):
@@ -83,7 +102,12 @@ def handle_file_too_large(error):
 @app.after_request
 def log_response_info(response):
     """Log response information"""
-    logger.info(f"Response: {response.status_code} for {request.method} {request.path}")
+    # Only log responses for non-humidity endpoints or errors
+    is_humidity_endpoint = request.path == '/humidity' and request.method == 'POST'
+    
+    if not is_humidity_endpoint or response.status_code != 200:
+        logger.info(f"Response: {response.status_code} for {request.method} {request.path}")
+    
     return response
 
 
@@ -104,36 +128,27 @@ def resize_image(image_data, max_width=1920, max_height=1080, quality=85, rotati
         rotation: Manual rotation in degrees (0, 90, 180, 270) or None for auto-rotation only
     """
     try:
-        logger.info(f"Starting image processing - Input size: {len(image_data)} bytes, Max dimensions: {max_width}x{max_height}, Quality: {quality}, Rotation: {rotation}")
+        logger.info(f"Starting image processing - Input size: {len(image_data)} bytes")
         
         # Open image from bytes
-        logger.info("Opening image from bytes")
         img = Image.open(io.BytesIO(image_data))
-        logger.info(f"Image opened successfully - Mode: {img.mode}, Size: {img.size}")
         
         # Apply automatic EXIF orientation correction first
-        logger.info("Applying EXIF orientation correction")
         img = ImageOps.exif_transpose(img)
-        logger.info(f"EXIF orientation applied - New size: {img.size}")
         
         # Apply manual rotation if specified
         if rotation is not None:
             if rotation in [90, 180, 270]:
-                logger.info(f"Applying manual rotation: {rotation} degrees")
                 img = img.rotate(-rotation, expand=True)  # Negative because PIL rotates counter-clockwise
-                logger.info(f"Manual rotation applied - New size: {img.size}")
             elif rotation != 0:
                 logger.warning(f"Invalid rotation value {rotation}, skipping manual rotation")
         
         # Convert to RGB if necessary (handles RGBA, P mode images)
         if img.mode in ('RGBA', 'P'):
-            logger.info(f"Converting image from {img.mode} to RGB")
             img = img.convert('RGB')
-            logger.info("Image conversion completed")
         
         # Calculate new size maintaining aspect ratio
         original_width, original_height = img.size
-        logger.info(f"Final dimensions before resize: {original_width}x{original_height}")
         
         # Only resize if image is larger than max dimensions
         if original_width > max_width or original_height > max_height:
@@ -141,16 +156,12 @@ def resize_image(image_data, max_width=1920, max_height=1080, quality=85, rotati
             new_width = int(original_width * ratio)
             new_height = int(original_height * ratio)
             
-            logger.info(f"Resizing image - Ratio: {ratio:.3f}, New dimensions: {new_width}x{new_height}")
+            logger.info(f"Resizing image from {original_width}x{original_height} to {new_width}x{new_height}")
             
             # Use LANCZOS for high quality resizing
             img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-            logger.info("Image resize completed")
-        else:
-            logger.info("Image size within limits, no resize needed")
         
         # Save optimized image to bytes
-        logger.info("Starting image compression and save")
         output = io.BytesIO()
         img.save(output, format='JPEG', quality=quality, optimize=True)
         output.seek(0)
